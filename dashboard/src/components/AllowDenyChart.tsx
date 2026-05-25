@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -34,11 +35,13 @@ interface AllowDenyChartProps {
 
 export function AllowDenyChart({ stats, clientId, onClearFilter }: AllowDenyChartProps) {
   // Map the timeline directly from server response
-  const dataPoints: ChartDataPoint[] = (stats?.timeline ?? []).map((point) => ({
-    time: point.timestamp,
-    allowed: point.allowed,
-    denied: point.denied,
-  }));
+  const dataPoints: ChartDataPoint[] = useMemo(() => {
+    return (stats?.timeline ?? []).map((point) => ({
+      time: point.timestamp,
+      allowed: point.allowed,
+      denied: point.denied,
+    }));
+  }, [stats?.timeline]);
 
   return (
     <div

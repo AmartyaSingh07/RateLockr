@@ -46,6 +46,11 @@ export function ScrambledText({
 
   useEffect(() => {
     setDisplayedText(originalText);
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+      }
+    };
   }, [originalText]);
 
   const scramble = () => {

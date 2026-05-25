@@ -271,7 +271,7 @@ function Dashboard() {
 
         {/* ─── Dashboard Content Grid ─── */}
         <main className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden p-6 bg-transparent relative z-10 space-y-6">
-          {isLoading ? (
+          {isLoading && !stats ? (
             <div className="flex items-center justify-center h-96">
               <div className="animate-spin rounded-full h-8 w-8 border-2 border-emerald-500/20 border-t-emerald-500" />
             </div>

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import apiClient from "../api/client";
 
 // =============================================================================
@@ -30,5 +30,6 @@ export function useStats(clientId?: string | null) {
     queryFn: () => fetchStats(clientId),
     refetchInterval: 2_000,
     refetchIntervalInBackground: true,
+    placeholderData: keepPreviousData,
   });
 }

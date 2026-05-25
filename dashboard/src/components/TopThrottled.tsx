@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { ShieldX } from "lucide-react";
 import type { Stats } from "../hooks/useStats";
 import { ScrambledText } from "./ScrambledText";
@@ -19,7 +20,7 @@ interface TopThrottledProps {
 }
 
 export function TopThrottled({ stats }: TopThrottledProps) {
-  const throttledClients = stats?.topThrottled ?? [];
+  const throttledClients = useMemo(() => stats?.topThrottled ?? [], [stats?.topThrottled]);
 
   return (
     <div

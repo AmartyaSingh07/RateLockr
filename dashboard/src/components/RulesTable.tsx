@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Trash2, Loader2, Database, Search } from "lucide-react";
 import { useRules, useDeleteRule } from "../hooks/useRules";
 import type { Rule } from "../hooks/useRules";
@@ -57,15 +57,17 @@ export function RulesTable({ selectedClientId, onSelectClient }: RulesTableProps
     );
   };
 
-  const filteredRules = (rules ?? []).filter((rule) => {
-    if (!searchFilter) return true;
-    const q = searchFilter.toLowerCase();
-    return (
-      rule.client_id.toLowerCase().includes(q) ||
-      rule.endpoint.toLowerCase().includes(q) ||
-      rule.algorithm.toLowerCase().includes(q)
-    );
-  });
+  const filteredRules = useMemo(() => {
+    return (rules ?? []).filter((rule) => {
+      if (!searchFilter) return true;
+      const q = searchFilter.toLowerCase();
+      return (
+        rule.client_id.toLowerCase().includes(q) ||
+        rule.endpoint.toLowerCase().includes(q) ||
+        rule.algorithm.toLowerCase().includes(q)
+      );
+    });
+  }, [rules, searchFilter]);
 
   // ─── Loading Skeleton ───
   if (isLoading) {
