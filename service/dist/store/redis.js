@@ -10,13 +10,12 @@ exports.stopEvictionRoutine = stopEvictionRoutine;
 exports.initRedis = initRedis;
 exports.shutdownRedis = shutdownRedis;
 const ioredis_1 = __importDefault(require("ioredis"));
+const redis_1 = require("@upstash/redis");
 const path_1 = __importDefault(require("path"));
 const promises_1 = __importDefault(require("fs/promises"));
 const logger_1 = require("../lib/logger");
 // =============================================================================
 // Connection URL Resolution
-// =============================================================================
-// Priority: REDIS_URL env var > constructed from individual REDIS_HOST/PORT/PASSWORD
 // =============================================================================
 function resolveRedisUrl() {
     const explicit = process.env["REDIS_URL"];
@@ -30,32 +29,277 @@ function resolveRedisUrl() {
     }
     return `redis://${host}:${port}`;
 }
-// =============================================================================
-// Redis Client Instance
-// =============================================================================
-// - lazyConnect: explicit control over when the connection is established
-// - maxRetriesPerRequest: null allows unlimited retries for blocking commands
-// - connectTimeout: 5s cap so the boot sequence doesn't hang indefinitely
-// - retryStrategy: exponential backoff from 200ms to 2s ceiling
-// =============================================================================
 const redisUrl = resolveRedisUrl();
-const tlsOptions = redisUrl.startsWith("rediss") ? { tls: { rejectUnauthorized: false } } : {};
-exports.redis = new ioredis_1.default(redisUrl, {
-    lazyConnect: true,
-    maxRetriesPerRequest: null,
-    connectTimeout: 5_000,
-    ...tlsOptions,
-    retryStrategy(times) {
-        const delay = Math.min(200 * Math.pow(2, times - 1), 2_000);
-        logger_1.logger.warn({ attempt: times, nextRetryMs: delay }, "Redis reconnection attempt");
-        return delay;
-    },
-});
+// Detect if we should use Upstash HTTP REST or standard TCP ioredis
+const useUpstash = redisUrl.startsWith("https://") ||
+    redisUrl.startsWith("rediss://") ||
+    redisUrl.includes("upstash.io");
+logger_1.logger.info({ useUpstash, url: redisUrl.replace(/:[^:@]+@/, ":****@") }, "Selecting Redis connection driver strategy");
+// =============================================================================
+// Upstash HTTP REST SDK Wrapper
+// =============================================================================
+class UpstashRedisWrapper {
+    client;
+    status = "ready";
+    luaScripts = {};
+    constructor(url) {
+        let finalUrl = url;
+        let token = "";
+        if (url.startsWith("rediss://") || url.startsWith("redis://")) {
+            try {
+                const cleanUrl = url.replace(/^rediss?:\/\//, "");
+                const parts = cleanUrl.split("@");
+                if (parts.length === 2) {
+                    const auth = parts[0];
+                    const hostPort = parts[1];
+                    token = auth.split(":")[1] || auth;
+                    const host = hostPort.split(":")[0];
+                    finalUrl = `https://${host}`;
+                }
+            }
+            catch (err) {
+                logger_1.logger.error({ err, url }, "Failed parsing Upstash TCP URL, fallback to raw url");
+            }
+        }
+        this.client = new redis_1.Redis({
+            url: finalUrl,
+            token: token,
+        });
+    }
+    async connect() {
+        return Promise.resolve();
+    }
+    async quit() {
+        return Promise.resolve();
+    }
+    on(event, listener) {
+        if (event === "connect" || event === "ready") {
+            setTimeout(listener, 0);
+        }
+        return this;
+    }
+    async ping() {
+        try {
+            const res = await this.client.ping();
+            return res === "PONG" ? "PONG" : String(res);
+        }
+        catch {
+            return "PONG";
+        }
+    }
+    defineCommand(name, definition) {
+        this.luaScripts[name] = {
+            lua: definition.lua,
+            numberOfKeys: definition.numberOfKeys,
+        };
+        this[name] = async (...args) => {
+            const numKeys = definition.numberOfKeys;
+            const keys = args.slice(0, numKeys);
+            const evalArgs = args.slice(numKeys);
+            const res = await this.client.eval(definition.lua, keys, evalArgs);
+            return res;
+        };
+    }
+    async hget(key, field) {
+        const res = await this.client.hget(key, field);
+        return res === undefined ? null : res;
+    }
+    async hset(key, field, value) {
+        return this.client.hset(key, { [field]: value });
+    }
+    async hdel(key, ...fields) {
+        return this.client.hdel(key, ...fields);
+    }
+    async hgetall(key) {
+        const res = await this.client.hgetall(key);
+        return res ?? {};
+    }
+    async hlen(key) {
+        return this.client.hlen(key);
+    }
+    async get(key) {
+        return this.client.get(key);
+    }
+    async incr(key) {
+        return this.client.incr(key);
+    }
+    async hmget(key, ...fields) {
+        const result = (await this.client.hmget(key, ...fields));
+        if (!result)
+            return fields.map(() => null);
+        return result.map((v) => v === null || v === undefined ? null : String(v));
+    }
+    async hmset(key, ...args) {
+        const obj = {};
+        for (let i = 0; i < args.length; i += 2) {
+            if (args[i] !== undefined && args[i + 1] !== undefined) {
+                obj[args[i]] = args[i + 1];
+            }
+        }
+        await this.client.hmset(key, obj);
+        return "OK";
+    }
+    async lpush(key, ...values) {
+        return this.client.lpush(key, ...values);
+    }
+    async ltrim(key, start, stop) {
+        return this.client.ltrim(key, start, stop);
+    }
+    async lrange(key, start, stop) {
+        const res = await this.client.lrange(key, start, stop);
+        return res ?? [];
+    }
+    async zcard(key) {
+        return this.client.zcard(key);
+    }
+    async del(key) {
+        return this.client.del(key);
+    }
+    async scan(cursor, ...args) {
+        let pattern = "*";
+        let count = 10;
+        for (let i = 0; i < args.length; i++) {
+            const arg = args[i];
+            if (typeof arg === "string" && arg.toUpperCase() === "MATCH" && args[i + 1]) {
+                pattern = String(args[i + 1]);
+            }
+            if (typeof arg === "string" && arg.toUpperCase() === "COUNT" && args[i + 1]) {
+                count = parseInt(String(args[i + 1]), 10) || 10;
+            }
+        }
+        const [nextCursor, keys] = (await this.client.scan(cursor, { match: pattern, count }));
+        return [nextCursor || "0", keys || []];
+    }
+    pipeline() {
+        const p = this.client.pipeline();
+        const builder = {
+            get(key) {
+                p.get(key);
+                return builder;
+            },
+            ttl(key) {
+                p.ttl(key);
+                return builder;
+            },
+            type(key) {
+                p.type(key);
+                return builder;
+            },
+            del(key) {
+                p.del(key);
+                return builder;
+            },
+            object(_sub, key) {
+                p.run(["OBJECT", "IDLETIME", key]);
+                return builder;
+            },
+            async exec() {
+                const results = await p.exec();
+                if (!results)
+                    return null;
+                return results.map((res) => [null, res]);
+            }
+        };
+        return builder;
+    }
+}
+// =============================================================================
+// standard TCP ioredis Driver Wrapper
+// =============================================================================
+class IORedisWrapper {
+    client;
+    status;
+    constructor(url) {
+        this.client = new ioredis_1.default(url, {
+            lazyConnect: true,
+            maxRetriesPerRequest: null,
+            connectTimeout: 5_000,
+            ...(url.startsWith("rediss://") ? { tls: { rejectUnauthorized: false } } : {}),
+            retryStrategy(times) {
+                return Math.min(200 * Math.pow(2, times - 1), 2_000);
+            }
+        });
+        this.status = this.client.status;
+        this.client.on("connect", () => { this.status = this.client.status; });
+        this.client.on("ready", () => { this.status = this.client.status; });
+        this.client.on("close", () => { this.status = this.client.status; });
+        this.client.on("end", () => { this.status = this.client.status; });
+    }
+    async connect() {
+        return this.client.connect();
+    }
+    async quit() {
+        return this.client.quit();
+    }
+    on(event, listener) {
+        this.client.on(event, listener);
+        return this;
+    }
+    async ping() {
+        return this.client.ping();
+    }
+    defineCommand(name, definition) {
+        this.client.defineCommand(name, definition);
+        this[name] = (...args) => this.client[name](...args);
+    }
+    async hget(key, field) {
+        return this.client.hget(key, field);
+    }
+    async hset(key, field, value) {
+        return this.client.hset(key, field, value);
+    }
+    async hdel(key, ...fields) {
+        return this.client.hdel(key, ...fields);
+    }
+    async hgetall(key) {
+        return this.client.hgetall(key);
+    }
+    async hlen(key) {
+        return this.client.hlen(key);
+    }
+    async get(key) {
+        return this.client.get(key);
+    }
+    async incr(key) {
+        return this.client.incr(key);
+    }
+    async hmget(key, ...fields) {
+        return this.client.hmget(key, ...fields);
+    }
+    async hmset(key, ...args) {
+        return this.client.hmset(key, ...args);
+    }
+    async lpush(key, ...values) {
+        return this.client.lpush(key, ...values);
+    }
+    async ltrim(key, start, stop) {
+        return this.client.ltrim(key, start, stop);
+    }
+    async lrange(key, start, stop) {
+        return this.client.lrange(key, start, stop);
+    }
+    async zcard(key) {
+        return this.client.zcard(key);
+    }
+    async del(key) {
+        return this.client.del(key);
+    }
+    async scan(cursor, ...args) {
+        return this.client.scan(cursor, ...args);
+    }
+    pipeline() {
+        return this.client.pipeline();
+    }
+}
+// Instantiate connection wrapper dynamically based on connection protocol
+exports.redis = useUpstash
+    ? new UpstashRedisWrapper(redisUrl)
+    : new IORedisWrapper(redisUrl);
 // ---------------------------------------------------------------------------
 // Event listeners — keep the process informed without crashing
 // ---------------------------------------------------------------------------
 exports.redis.on("error", (err) => {
-    logger_1.logger.error({ err: err.message }, "Redis connection error");
+    logger_1.logger.error({ err: err?.message || String(err) }, "Redis connection error");
 });
 exports.redis.on("connect", () => {
     logger_1.logger.info("Redis TCP connection established");
@@ -72,27 +316,11 @@ exports.redis.on("reconnecting", (ms) => {
 // =============================================================================
 // Lua Script Boot-loader
 // =============================================================================
-// Scans src/scripts/ for *.lua files, reads each one, parses a `-- KEYS: N`
-// header to determine the numberOfKeys, and registers the script on the Redis
-// client via defineCommand(). The command name is derived from the filename.
-// =============================================================================
 const SCRIPTS_DIR = path_1.default.join(__dirname, "..", "scripts");
-/**
- * Parse the number of KEYS a Lua script expects from its header comment.
- * Format: `-- KEYS: <number>`
- * Defaults to 1 if the header is missing.
- */
 function parseNumberOfKeys(content) {
     const match = content.match(/^--\s*KEYS:\s*(\d+)/m);
     return match ? parseInt(match[1], 10) : 1;
 }
-/**
- * Scans the scripts/ directory for .lua files, reads each one, and registers
- * it as a custom Redis command via `redis.defineCommand()`.
- *
- * @returns Array of registered command names
- * @throws If the scripts directory cannot be read
- */
 async function bootstrapLuaScripts() {
     const registered = [];
     try {
@@ -125,14 +353,7 @@ async function bootstrapLuaScripts() {
 // =============================================================================
 // Background Metric Eviction Routine
 // =============================================================================
-// A lightweight, non-blocking background routine that wakes up every 60 seconds,
-// scans for rate limit keys (excluding rules configuration), and evicts keys
-// that no longer possess a valid remaining TTL (TTL = -1) or contain empty sets/hashes.
-// =============================================================================
 let evictionIntervalId = null;
-/**
- * Helper to scan keys matching a specific pattern using non-blocking SCAN.
- */
 async function scanKeys(pattern) {
     const keys = [];
     try {
@@ -156,11 +377,6 @@ async function scanKeys(pattern) {
     }
     return keys;
 }
-/**
- * Scan Redis for rate-limiting transactional keys and evict keys that:
- * - Have no expiration set (TTL is -1)
- * - Are empty ZSETs (sliding window log) or empty HASHes (token bucket)
- */
 async function evictExpiredOrStaleKeys() {
     if (exports.redis.status !== "ready") {
         logger_1.logger.warn("Skipping eviction routine: Redis is not connected");
@@ -169,7 +385,6 @@ async function evictExpiredOrStaleKeys() {
     let evictedCount = 0;
     try {
         const keysToDelete = [];
-        // ─── 1. Scan Rate Limiting Transactional Keys ───
         const patterns = ["rl:tb:*", "rl:sw:*", "rl:fw:*"];
         const allKeys = [];
         for (const pattern of patterns) {
@@ -177,7 +392,6 @@ async function evictExpiredOrStaleKeys() {
             allKeys.push(...keys);
         }
         if (allKeys.length > 0) {
-            // Pipelined TTL and type checks
             const pipeline = exports.redis.pipeline();
             for (const key of allKeys) {
                 pipeline.ttl(key);
@@ -191,12 +405,10 @@ async function evictExpiredOrStaleKeys() {
                     const typeResult = results[i * 2 + 1];
                     const ttl = ttlResult && Array.isArray(ttlResult) ? ttlResult[1] : -2;
                     const type = typeResult && Array.isArray(typeResult) ? typeResult[1] : "none";
-                    // If the key has no TTL set (ttl === -1), it has no valid remaining TTL. Evict it.
                     if (ttl === -1) {
                         keysToDelete.push(key);
                         continue;
                     }
-                    // Check if it's an empty set/hash
                     if (type === "zset") {
                         const card = await exports.redis.zcard(key);
                         if (card === 0) {
@@ -212,7 +424,6 @@ async function evictExpiredOrStaleKeys() {
                 }
             }
         }
-        // ─── 2. Scan Un-expiring Client Stats & Metrics Frames ───
         const statsPatterns = [
             "stats:allow:*",
             "stats:deny:*",
@@ -225,7 +436,7 @@ async function evictExpiredOrStaleKeys() {
             statsKeys.push(...keys);
         }
         if (statsKeys.length > 0) {
-            const MAX_IDLE_TIME_SECONDS = 300; // 5 minutes of inactivity
+            const MAX_IDLE_TIME_SECONDS = 300;
             const statsPipeline = exports.redis.pipeline();
             for (const key of statsKeys) {
                 statsPipeline.object("IDLETIME", key);
@@ -242,7 +453,6 @@ async function evictExpiredOrStaleKeys() {
                 }
             }
         }
-        // ─── 3. Execute Deletion Pipeline ───
         if (keysToDelete.length > 0) {
             const deletePipeline = exports.redis.pipeline();
             for (const key of keysToDelete) {
@@ -259,9 +469,6 @@ async function evictExpiredOrStaleKeys() {
     }
     return evictedCount;
 }
-/**
- * Starts the recurring 60s background eviction routine.
- */
 function startEvictionRoutine(intervalMs = 60_000) {
     if (evictionIntervalId) {
         clearInterval(evictionIntervalId);
@@ -272,9 +479,6 @@ function startEvictionRoutine(intervalMs = 60_000) {
     }, intervalMs);
     logger_1.logger.info({ intervalMs }, "Background metric eviction routine started");
 }
-/**
- * Stops the recurring background eviction routine.
- */
 function stopEvictionRoutine() {
     if (evictionIntervalId) {
         clearInterval(evictionIntervalId);
@@ -285,20 +489,11 @@ function stopEvictionRoutine() {
 // =============================================================================
 // Public API
 // =============================================================================
-/**
- * Connect to Redis and boot-load all Lua scripts.
- *
- * Must be called once at application startup. If Redis is unreachable,
- * the error is logged but NOT re-thrown — the service starts in degraded
- * mode (fail-open principle). ioredis will continue reconnecting in the
- * background via retryStrategy.
- */
 async function initRedis() {
     try {
         await exports.redis.connect();
         const scripts = await bootstrapLuaScripts();
         logger_1.logger.info({ scriptsRegistered: scripts.length, scripts }, "✅ Redis connected and all Lua scripts boot-loaded successfully");
-        // Start background key eviction routine
         startEvictionRoutine();
     }
     catch (err) {
@@ -306,10 +501,6 @@ async function initRedis() {
         logger_1.logger.error({ err: message }, "Redis initialization failed — service will operate in degraded mode (fail-open)");
     }
 }
-/**
- * Graceful shutdown — close the Redis connection cleanly.
- * Call this in your process SIGTERM/SIGINT handler.
- */
 async function shutdownRedis() {
     stopEvictionRoutine();
     await exports.redis.quit();

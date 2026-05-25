@@ -1,31 +1,35 @@
-import Redis from "ioredis";
-export declare const redis: Redis;
-/**
- * Scan Redis for rate-limiting transactional keys and evict keys that:
- * - Have no expiration set (TTL is -1)
- * - Are empty ZSETs (sliding window log) or empty HASHes (token bucket)
- */
+export interface RedisClient {
+    status: string;
+    connect(): Promise<void>;
+    quit(): Promise<string | void>;
+    on(event: string, listener: (...args: any[]) => void): this;
+    ping(): Promise<string>;
+    defineCommand(name: string, definition: {
+        numberOfKeys: number;
+        lua: string;
+    }): void;
+    hget(key: string, field: string): Promise<string | null>;
+    hset(key: string, field: string, value: string): Promise<number>;
+    hdel(key: string, ...fields: string[]): Promise<number>;
+    hgetall(key: string): Promise<Record<string, string>>;
+    hlen(key: string): Promise<number>;
+    get(key: string): Promise<string | null>;
+    incr(key: string): Promise<number>;
+    hmget(key: string, ...fields: string[]): Promise<Array<string | null>>;
+    hmset(key: string, ...args: string[]): Promise<"OK" | number | string>;
+    lpush(key: string, ...values: string[]): Promise<number>;
+    ltrim(key: string, start: number, stop: number): Promise<"OK" | string>;
+    lrange(key: string, start: number, stop: number): Promise<string[]>;
+    zcard(key: string): Promise<number>;
+    del(key: string): Promise<number>;
+    scan(cursor: string, ...args: Array<string | number>): Promise<[string, string[]]>;
+    pipeline(): any;
+    [key: string]: any;
+}
+export declare const redis: RedisClient;
 export declare function evictExpiredOrStaleKeys(): Promise<number>;
-/**
- * Starts the recurring 60s background eviction routine.
- */
 export declare function startEvictionRoutine(intervalMs?: number): void;
-/**
- * Stops the recurring background eviction routine.
- */
 export declare function stopEvictionRoutine(): void;
-/**
- * Connect to Redis and boot-load all Lua scripts.
- *
- * Must be called once at application startup. If Redis is unreachable,
- * the error is logged but NOT re-thrown — the service starts in degraded
- * mode (fail-open principle). ioredis will continue reconnecting in the
- * background via retryStrategy.
- */
 export declare function initRedis(): Promise<void>;
-/**
- * Graceful shutdown — close the Redis connection cleanly.
- * Call this in your process SIGTERM/SIGINT handler.
- */
 export declare function shutdownRedis(): Promise<void>;
 //# sourceMappingURL=redis.d.ts.map
