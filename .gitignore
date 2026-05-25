@@ -29,9 +29,8 @@ Desktop.ini
 ehthumbs.db
 
 # Local Compilation Build Directories & Maps
-dist/
+dashboard/dist/
 build/
-**/dist/
 **/build/
 *.tsbuildinfo
 
