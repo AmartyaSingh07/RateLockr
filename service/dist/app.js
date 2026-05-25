@@ -21,11 +21,15 @@ exports.app = (0, express_1.default)();
 // ---------------------------------------------------------------------------
 // Global Middleware
 // ---------------------------------------------------------------------------
-// CORS — explicitly permit the dashboard dev server origin
+// CORS — permit the production Vercel dashboard and local dev servers
 exports.app.use((0, cors_1.default)({
-    origin: ["http://localhost:5173", "http://127.0.0.1:5173"],
+    origin: [
+        "https://rate-lockr.vercel.app",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "X-API-Key", "X-Request-ID"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID"],
     credentials: true,
 }));
 exports.app.use(requestId_1.requestIdMiddleware);
