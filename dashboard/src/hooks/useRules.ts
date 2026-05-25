@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import apiClient from "../api/client";
 
 // =============================================================================
@@ -18,65 +18,110 @@ interface RulesResponse {
 }
 
 // =============================================================================
-// useRules — Polls GET /rules every 5 seconds for the admin rules table
+// useRules — Custom Hook using native state & interval polling
 // =============================================================================
-
-async function fetchRules(): Promise<Rule[]> {
-  const { data } = await apiClient.get<RulesResponse>("/rules");
-  return data.rules ?? [];
-}
 
 export function useRules() {
-  return useQuery<Rule[]>({
-    queryKey: ["rules"],
-    queryFn: fetchRules,
-    refetchInterval: 5_000,
-    refetchIntervalInBackground: false,
-  });
+  const [data, setData] = useState<Rule[] | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchRules = async () => {
+      try {
+        const { data: resData } = await apiClient.get<RulesResponse>("/rules");
+        if (active) {
+          setData(resData.rules ?? []);
+          setIsLoading(false);
+          setIsError(false);
+        }
+      } catch (err) {
+        console.error("Failed to fetch rules:", err);
+        if (active) {
+          setIsError(true);
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchRules();
+
+    // Polling every 5 seconds
+    const intervalId = setInterval(fetchRules, 5_000);
+
+    const handleRefetch = () => {
+      fetchRules();
+    };
+
+    window.addEventListener("refetch-rules", handleRefetch);
+
+    return () => {
+      active = false;
+      window.removeEventListener("refetch-rules", handleRefetch);
+      clearInterval(intervalId);
+    };
+  }, []);
+
+  return { data, isLoading, isError };
 }
 
 // =============================================================================
-// useCreateRule — POST /rules mutation with auto-invalidation
+// useCreateRule — Custom Hook for POST /rules with event-based invalidation
 // =============================================================================
 
 export function useCreateRule() {
-  const queryClient = useQueryClient();
+  const [isPending, setIsPending] = useState(false);
+  const [isError, setIsError] = useState(false);
 
-  return useMutation({
-    mutationFn: async (rule: Rule) => {
-      const { data } = await apiClient.post("/rules", rule);
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rules"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    },
-  });
+  const mutate = async (rule: Rule, options?: { onSuccess?: () => void }) => {
+    setIsPending(true);
+    setIsError(false);
+    try {
+      await apiClient.post("/rules", rule);
+      window.dispatchEvent(new Event("refetch-rules"));
+      window.dispatchEvent(new Event("refetch-stats"));
+      options?.onSuccess?.();
+    } catch (err) {
+      console.error("Failed to create rule:", err);
+      setIsError(true);
+    } finally {
+      setIsPending(false);
+    }
+  };
+
+  return { mutate, isPending, isError };
 }
 
 // =============================================================================
-// useDeleteRule — DELETE /rules/:client_id/:endpoint with auto-invalidation
+// useDeleteRule — Custom Hook for DELETE /rules with event-based invalidation
 // =============================================================================
 
 export function useDeleteRule() {
-  const queryClient = useQueryClient();
+  const [isPending, setIsPending] = useState(false);
+  const [isError, setIsError] = useState(false);
 
-  return useMutation({
-    mutationFn: async ({
-      client_id,
-      endpoint,
-    }: {
-      client_id: string;
-      endpoint: string;
-    }) => {
-      const { data } = await apiClient.delete(
+  const mutate = async (
+    { client_id, endpoint }: { client_id: string; endpoint: string },
+    options?: { onSettled?: () => void }
+  ) => {
+    setIsPending(true);
+    setIsError(false);
+    try {
+      await apiClient.delete(
         `/rules/${encodeURIComponent(client_id)}/${encodeURIComponent(endpoint)}`
       );
-      return data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["rules"] });
-      queryClient.invalidateQueries({ queryKey: ["stats"] });
-    },
-  });
+      window.dispatchEvent(new Event("refetch-rules"));
+      window.dispatchEvent(new Event("refetch-stats"));
+    } catch (err) {
+      console.error("Failed to delete rule:", err);
+      setIsError(true);
+    } finally {
+      setIsPending(false);
+      options?.onSettled?.();
+    }
+  };
+
+  return { mutate, isPending, isError };
 }

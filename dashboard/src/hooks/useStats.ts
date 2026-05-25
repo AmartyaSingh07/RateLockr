@@ -1,4 +1,4 @@
-import { useQuery, keepPreviousData } from "@tanstack/react-query";
+import { useState, useEffect } from "react";
 import apiClient from "../api/client";
 
 // =============================================================================
@@ -13,23 +13,53 @@ export interface Stats {
   timeline: Array<{ timestamp: string; allowed: number; denied: number }>;
 }
 
-async function fetchStats(clientId?: string | null): Promise<Stats> {
-  const url = clientId ? `/stats?clientId=${encodeURIComponent(clientId)}` : "/stats";
-  const { data } = await apiClient.get<Stats>(url);
-  return data;
-}
+// =============================================================================
+// useStats — Custom Hook using native state, interval polling & active flag guards
+// =============================================================================
 
-/**
- * Custom React Query hook that polls the backend's GET /stats endpoint
- * every 2 seconds to feed the live telemetry cards and streaming chart.
- * Supports optional filtering by client ID.
- */
 export function useStats(clientId?: string | null) {
-  return useQuery<Stats>({
-    queryKey: ["stats", clientId],
-    queryFn: () => fetchStats(clientId),
-    refetchInterval: 2_000,
-    refetchIntervalInBackground: true,
-    placeholderData: keepPreviousData,
-  });
+  const [data, setData] = useState<Stats | undefined>(undefined);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isError, setIsError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+
+    const fetchStats = async () => {
+      try {
+        const url = clientId ? `/stats?clientId=${encodeURIComponent(clientId)}` : "/stats";
+        const { data: resData } = await apiClient.get<Stats>(url);
+        if (active) {
+          setData(resData);
+          setIsLoading(false);
+          setIsError(false);
+        }
+      } catch (err) {
+        console.error("Failed to fetch stats:", err);
+        if (active) {
+          setIsError(true);
+          setIsLoading(false);
+        }
+      }
+    };
+
+    fetchStats();
+
+    // Poll every 2 seconds
+    const intervalId = setInterval(fetchStats, 2_000);
+
+    const handleRefetch = () => {
+      fetchStats();
+    };
+
+    window.addEventListener("refetch-stats", handleRefetch);
+
+    return () => {
+      active = false;
+      window.removeEventListener("refetch-stats", handleRefetch);
+      clearInterval(intervalId);
+    };
+  }, [clientId]);
+
+  return { data, isLoading, isError };
 }

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useStats } from "./hooks/useStats";
 import { StatsCards } from "./components/StatsCards";
 import { AllowDenyChart } from "./components/AllowDenyChart";
@@ -17,19 +16,6 @@ import {
   Plus,
   ChevronRight,
 } from "lucide-react";
-
-// =============================================================================
-// Query Client — Global React Query Configuration
-// =============================================================================
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: 2,
-      staleTime: 1_000,
-    },
-  },
-});
 
 // =============================================================================
 // Navigation Menu Configuration
@@ -314,13 +300,9 @@ function Dashboard() {
 }
 
 // =============================================================================
-// App Root — QueryClientProvider wraps the entire render tree
+// App Root — Direct render without library providers
 // =============================================================================
 
 export default function App() {
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Dashboard />
-    </QueryClientProvider>
-  );
+  return <Dashboard />;
 }
