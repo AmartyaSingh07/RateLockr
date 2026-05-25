@@ -1,0 +1,78 @@
+version: "3.9"
+
+# =============================================================================
+# RateLockr — Local Development Infrastructure
+# =============================================================================
+# Isolated bridge network with two services:
+#   1. ratelockr-service  — Alpine Node.js container (Express + TypeScript)
+#   2. ratelockr-redis    — Redis 7 with password authentication
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up --build
+#   docker compose -f docker-compose.dev.yml down -v
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Node.js Application Service
+  # ---------------------------------------------------------------------------
+  ratelockr-service:
+    container_name: ratelockr-service
+    image: node:20-alpine
+    working_dir: /app
+    volumes:
+      - ./service:/app
+      - service_node_modules:/app/node_modules
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: development
+      PORT: "3000"
+      REDIS_HOST: ratelockr-redis
+      REDIS_PORT: "6379"
+      REDIS_PASSWORD: dev_password_123
+      LOG_LEVEL: debug
+    command: sh -c "npm install && npm run dev"
+    depends_on:
+      ratelockr-redis:
+        condition: service_started
+    networks:
+      - ratelockr-net
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Redis 7 — State Store (Password-Protected)
+  # ---------------------------------------------------------------------------
+  ratelockr-redis:
+    container_name: ratelockr-redis
+    image: redis:7-alpine
+    command: redis-server --requirepass dev_password_123
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - ratelockr-net
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "dev_password_123", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# =============================================================================
+# Isolated Bridge Network
+# =============================================================================
+networks:
+  ratelockr-net:
+    driver: bridge
+    name: ratelockr-net
+
+# =============================================================================
+# Named Volumes — Persistent data & cached node_modules
+# =============================================================================
+volumes:
+  redis_data:
+    driver: local
+  service_node_modules:
+    driver: local

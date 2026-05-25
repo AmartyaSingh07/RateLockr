@@ -1,0 +1,45 @@
+# =============================================================================
+# RateLockr Root Git Ignore Rules
+# =============================================================================
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Environment Files & Secret Keys
+*.env
+*.env.local
+*.env.*
+.env
+.env.local
+.env.*
+.env.development
+.env.production
+
+# Docker Database Volumes / Local State Storage
+redis_data/
+service_node_modules/
+**/redis_data/
+**/service_node_modules/
+
+# OS Cache Fragments & System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Local Compilation Build Directories & Maps
+dist/
+build/
+**/dist/
+**/build/
+*.tsbuildinfo
+
+# IDE & Editor Settings
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
