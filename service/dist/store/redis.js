@@ -31,10 +31,9 @@ function resolveRedisUrl() {
 }
 const redisUrl = resolveRedisUrl();
 // Detect if we should use Upstash HTTP REST or standard TCP ioredis
-const useUpstash = redisUrl.startsWith("https://") ||
-    redisUrl.startsWith("rediss://") ||
-    redisUrl.includes("upstash.io");
-logger_1.logger.info({ useUpstash, url: redisUrl.replace(/:[^:@]+@/, ":****@") }, "Selecting Redis connection driver strategy");
+const useUpstash = !!(process.env["UPSTASH_REDIS_REST_URL"] ||
+    process.env["UPSTASH_REDIS_REST_TOKEN"]);
+logger_1.logger.info({ useUpstash, url: useUpstash ? "Upstash HTTP REST" : redisUrl.replace(/:[^:@]+@/, ":****@") }, "Selecting Redis connection driver strategy");
 // =============================================================================
 // Upstash HTTP REST SDK Wrapper
 // =============================================================================
@@ -42,29 +41,9 @@ class UpstashRedisWrapper {
     client;
     status = "ready";
     luaScripts = {};
-    constructor(url) {
-        let finalUrl = url;
-        let token = "";
-        if (url.startsWith("rediss://") || url.startsWith("redis://")) {
-            try {
-                const cleanUrl = url.replace(/^rediss?:\/\//, "");
-                const parts = cleanUrl.split("@");
-                if (parts.length === 2) {
-                    const auth = parts[0];
-                    const hostPort = parts[1];
-                    token = auth.split(":")[1] || auth;
-                    const host = hostPort.split(":")[0];
-                    finalUrl = `https://${host}`;
-                }
-            }
-            catch (err) {
-                logger_1.logger.error({ err, url }, "Failed parsing Upstash TCP URL, fallback to raw url");
-            }
-        }
-        this.client = new redis_1.Redis({
-            url: finalUrl,
-            token: token,
-        });
+    constructor() {
+        // Instantiate directly using the official environment variable loader
+        this.client = redis_1.Redis.fromEnv();
     }
     async connect() {
         return Promise.resolve();
@@ -293,8 +272,10 @@ class IORedisWrapper {
 }
 // Instantiate connection wrapper dynamically based on connection protocol
 exports.redis = useUpstash
-    ? new UpstashRedisWrapper(redisUrl)
+    ? new UpstashRedisWrapper()
     : new IORedisWrapper(redisUrl);
+// Support both named and default exports for maximum compatibility
+exports.default = exports.redis;
 // ---------------------------------------------------------------------------
 // Event listeners — keep the process informed without crashing
 // ---------------------------------------------------------------------------

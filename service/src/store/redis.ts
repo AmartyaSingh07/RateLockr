@@ -25,13 +25,13 @@ function resolveRedisUrl(): string {
 const redisUrl = resolveRedisUrl();
 
 // Detect if we should use Upstash HTTP REST or standard TCP ioredis
-const useUpstash =
-  redisUrl.startsWith("https://") ||
-  redisUrl.startsWith("rediss://") ||
-  redisUrl.includes("upstash.io");
+const useUpstash = !!(
+  process.env["UPSTASH_REDIS_REST_URL"] ||
+  process.env["UPSTASH_REDIS_REST_TOKEN"]
+);
 
 logger.info(
-  { useUpstash, url: redisUrl.replace(/:[^:@]+@/, ":****@") },
+  { useUpstash, url: useUpstash ? "Upstash HTTP REST" : redisUrl.replace(/:[^:@]+@/, ":****@") },
   "Selecting Redis connection driver strategy"
 );
 
@@ -75,31 +75,9 @@ class UpstashRedisWrapper implements RedisClient {
   public status = "ready";
   private luaScripts: Record<string, { lua: string; numberOfKeys: number }> = {};
 
-  constructor(url: string) {
-    let finalUrl = url;
-    let token = "";
-
-    if (url.startsWith("rediss://") || url.startsWith("redis://")) {
-      try {
-        const cleanUrl = url.replace(/^rediss?:\/\//, "");
-        const parts = cleanUrl.split("@");
-        if (parts.length === 2) {
-          const auth = parts[0]!;
-          const hostPort = parts[1]!;
-          token = auth.split(":")[1] || auth;
-          
-          const host = hostPort.split(":")[0];
-          finalUrl = `https://${host}`;
-        }
-      } catch (err) {
-        logger.error({ err, url }, "Failed parsing Upstash TCP URL, fallback to raw url");
-      }
-    }
-
-    this.client = new UpstashRedis({
-      url: finalUrl,
-      token: token,
-    });
+  constructor() {
+    // Instantiate directly using the official environment variable loader
+    this.client = UpstashRedis.fromEnv();
   }
 
   async connect() {
@@ -376,8 +354,11 @@ class IORedisWrapper implements RedisClient {
 
 // Instantiate connection wrapper dynamically based on connection protocol
 export const redis: RedisClient = useUpstash
-  ? new UpstashRedisWrapper(redisUrl)
+  ? new UpstashRedisWrapper()
   : new IORedisWrapper(redisUrl);
+
+// Support both named and default exports for maximum compatibility
+export default redis;
 
 // ---------------------------------------------------------------------------
 // Event listeners — keep the process informed without crashing

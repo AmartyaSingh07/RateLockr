@@ -27,6 +27,7 @@ export interface RedisClient {
     [key: string]: any;
 }
 export declare const redis: RedisClient;
+export default redis;
 export declare function evictExpiredOrStaleKeys(): Promise<number>;
 export declare function startEvictionRoutine(intervalMs?: number): void;
 export declare function stopEvictionRoutine(): void;
