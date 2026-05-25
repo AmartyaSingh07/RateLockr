@@ -32,10 +32,14 @@ function resolveRedisUrl(): string {
 // - retryStrategy: exponential backoff from 200ms to 2s ceiling
 // =============================================================================
 
-export const redis = new Redis(resolveRedisUrl(), {
+const redisUrl = resolveRedisUrl();
+const tlsOptions = redisUrl.startsWith("rediss") ? { tls: { rejectUnauthorized: false } } : {};
+
+export const redis = new Redis(redisUrl, {
   lazyConnect: true,
   maxRetriesPerRequest: null,
   connectTimeout: 5_000,
+  ...tlsOptions,
 
   retryStrategy(times: number): number {
     const delay = Math.min(200 * Math.pow(2, times - 1), 2_000);

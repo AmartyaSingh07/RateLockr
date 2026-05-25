@@ -38,10 +38,13 @@ function resolveRedisUrl() {
 // - connectTimeout: 5s cap so the boot sequence doesn't hang indefinitely
 // - retryStrategy: exponential backoff from 200ms to 2s ceiling
 // =============================================================================
-exports.redis = new ioredis_1.default(resolveRedisUrl(), {
+const redisUrl = resolveRedisUrl();
+const tlsOptions = redisUrl.startsWith("rediss") ? { tls: { rejectUnauthorized: false } } : {};
+exports.redis = new ioredis_1.default(redisUrl, {
     lazyConnect: true,
     maxRetriesPerRequest: null,
     connectTimeout: 5_000,
+    ...tlsOptions,
     retryStrategy(times) {
         const delay = Math.min(200 * Math.pow(2, times - 1), 2_000);
         logger_1.logger.warn({ attempt: times, nextRetryMs: delay }, "Redis reconnection attempt");
