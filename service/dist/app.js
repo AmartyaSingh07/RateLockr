@@ -41,6 +41,9 @@ exports.app.use("/check", check_1.default);
 exports.app.use("/rules", rules_1.default);
 exports.app.use("/metrics", metrics_1.default);
 exports.app.use("/stats", stats_1.default);
+exports.app.get("/version", (_req, res) => {
+    res.status(200).json({ version: "v1.0.1-seeding-fix" });
+});
 // =============================================================================
 // Health Check — GET /health
 // =============================================================================

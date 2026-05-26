@@ -47,6 +47,10 @@ app.use("/rules", rulesRouter);
 app.use("/metrics", metricsRouter);
 app.use("/stats", statsRouter);
 
+app.get("/version", (_req, res) => {
+  res.status(200).json({ version: "v1.0.1-seeding-fix" });
+});
+
 // =============================================================================
 // Health Check — GET /health
 // =============================================================================
