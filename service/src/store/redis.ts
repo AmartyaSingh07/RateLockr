@@ -212,6 +212,14 @@ class UpstashRedisWrapper implements RedisClient {
         p.get(key);
         return builder;
       },
+      hgetall(key: string) {
+        p.hgetall(key);
+        return builder;
+      },
+      hlen(key: string) {
+        p.hlen(key);
+        return builder;
+      },
       ttl(key: string) {
         p.ttl(key);
         return builder;

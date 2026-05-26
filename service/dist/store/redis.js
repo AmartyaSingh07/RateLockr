@@ -156,6 +156,14 @@ class UpstashRedisWrapper {
                 p.get(key);
                 return builder;
             },
+            hgetall(key) {
+                p.hgetall(key);
+                return builder;
+            },
+            hlen(key) {
+                p.hlen(key);
+                return builder;
+            },
             ttl(key) {
                 p.ttl(key);
                 return builder;
