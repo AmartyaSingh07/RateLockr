@@ -94,7 +94,7 @@ router.get("/", async (_req: Request, res: Response) => {
       await redis.ltrim(timelineKey, 0, 29).catch(() => {});
 
       const rawTimeline = await redis.lrange(timelineKey, 0, -1).catch(() => []);
-      const timeline = rawTimeline.map((item) => JSON.parse(item)).reverse();
+      const timeline = rawTimeline.map((item) => typeof item === "string" ? JSON.parse(item) : item).reverse();
 
       res.status(200).json({
         totalAllowed: allowed,
@@ -221,7 +221,7 @@ router.get("/", async (_req: Request, res: Response) => {
     await redis.ltrim("rl:metrics:timeline", 0, 29).catch(() => {});
 
     const rawTimeline = await redis.lrange("rl:metrics:timeline", 0, -1).catch(() => []);
-    const timeline = rawTimeline.map((item) => JSON.parse(item)).reverse();
+    const timeline = rawTimeline.map((item) => typeof item === "string" ? JSON.parse(item) : item).reverse();
 
     // Return payload conforming 100% to camelCase specification contract
     res.status(200).json({

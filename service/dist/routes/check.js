@@ -33,7 +33,7 @@ router.post("/", (0, validate_1.validateBody)(checkSchema_1.checkSchema), async 
         let rule = { ...DEFAULT_RULE, client_id, endpoint };
         if (ruleDataRaw) {
             try {
-                rule = JSON.parse(ruleDataRaw);
+                rule = typeof ruleDataRaw === "string" ? JSON.parse(ruleDataRaw) : ruleDataRaw;
             }
             catch (err) {
                 logger_1.logger.error({ err, client_id, endpoint }, "Failed to parse rule data from Redis");

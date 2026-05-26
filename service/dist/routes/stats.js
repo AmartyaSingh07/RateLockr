@@ -76,7 +76,7 @@ router.get("/", async (_req, res) => {
             await redis_1.redis.lpush(timelineKey, JSON.stringify(snapshot)).catch(() => { });
             await redis_1.redis.ltrim(timelineKey, 0, 29).catch(() => { });
             const rawTimeline = await redis_1.redis.lrange(timelineKey, 0, -1).catch(() => []);
-            const timeline = rawTimeline.map((item) => JSON.parse(item)).reverse();
+            const timeline = rawTimeline.map((item) => typeof item === "string" ? JSON.parse(item) : item).reverse();
             res.status(200).json({
                 totalAllowed: allowed,
                 totalDenied: denied,
@@ -182,7 +182,7 @@ router.get("/", async (_req, res) => {
         await redis_1.redis.lpush("rl:metrics:timeline", JSON.stringify(snapshot)).catch(() => { });
         await redis_1.redis.ltrim("rl:metrics:timeline", 0, 29).catch(() => { });
         const rawTimeline = await redis_1.redis.lrange("rl:metrics:timeline", 0, -1).catch(() => []);
-        const timeline = rawTimeline.map((item) => JSON.parse(item)).reverse();
+        const timeline = rawTimeline.map((item) => typeof item === "string" ? JSON.parse(item) : item).reverse();
         // Return payload conforming 100% to camelCase specification contract
         res.status(200).json({
             totalAllowed: totalAllowed ?? 0,

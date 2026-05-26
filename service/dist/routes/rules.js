@@ -62,7 +62,7 @@ router.get("/", async (_req, res) => {
             // Each hash field value is a JSON-stringified rule object
             for (const raw of Object.values(hash)) {
                 try {
-                    const parsed = JSON.parse(raw);
+                    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
                     if (parsed && parsed.client_id && parsed.endpoint) {
                         rules.push(parsed);
                     }
@@ -99,7 +99,7 @@ router.get("/:client_id", async (req, res, next) => {
         const rulesRaw = (await redis_1.redis.hgetall(key)) ?? {};
         const rules = Object.values(rulesRaw).map(raw => {
             try {
-                return JSON.parse(raw);
+                return typeof raw === "string" ? JSON.parse(raw) : raw;
             }
             catch {
                 return null;

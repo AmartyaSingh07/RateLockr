@@ -37,7 +37,7 @@ router.post("/", validateBody(checkSchema), async (req, res, next) => {
     
     if (ruleDataRaw) {
       try {
-        rule = JSON.parse(ruleDataRaw);
+        rule = typeof ruleDataRaw === "string" ? JSON.parse(ruleDataRaw) : ruleDataRaw;
       } catch (err) {
         logger.error({ err, client_id, endpoint }, "Failed to parse rule data from Redis");
       }
