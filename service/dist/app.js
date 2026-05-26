@@ -44,6 +44,15 @@ exports.app.use("/stats", stats_1.default);
 exports.app.get("/version", (_req, res) => {
     res.status(200).json({ version: "v1.0.1-seeding-fix" });
 });
+exports.app.get("/test-scan", async (_req, res) => {
+    try {
+        const rawResult = await redis_1.redis.scan("0", "MATCH", "rl:rules:*", "COUNT", 100);
+        res.status(200).json({ rawResult });
+    }
+    catch (err) {
+        res.status(500).json({ error: err?.message || String(err) });
+    }
+});
 // =============================================================================
 // Health Check — GET /health
 // =============================================================================
