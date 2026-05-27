@@ -44,7 +44,9 @@ const rateLimiterMiddleware = async (req, res, next) => {
         let ruleDataRaw = null;
         try {
             const ruleKeyName = (0, keys_1.rulesKey)(resolvedClientId);
+            logger_1.logger.info({ ruleKeyName, hashField: endpoint }, "Redis HGET lookup parameters");
             ruleDataRaw = await redis_1.redis.hget(ruleKeyName, endpoint);
+            logger_1.logger.info({ ruleKeyName, hashField: endpoint, found: ruleDataRaw !== null }, "Redis HGET lookup result");
         }
         catch (err) {
             metrics_1.redisErrorsTotal.inc({ operation: "middleware_hget" });
