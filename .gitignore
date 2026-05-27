@@ -30,6 +30,7 @@ ehthumbs.db
 
 # Local Compilation Build Directories & Maps
 dashboard/dist/
+service/dist/
 build/
 **/build/
 *.tsbuildinfo
