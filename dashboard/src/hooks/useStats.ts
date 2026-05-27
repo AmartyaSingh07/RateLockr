@@ -27,7 +27,7 @@ export function useStats(clientId?: string | null) {
 
     const fetchStats = async () => {
       try {
-        const url = clientId ? `/stats?clientId=${encodeURIComponent(clientId)}` : "/stats";
+        const url = clientId ? `/api/stats?clientId=${encodeURIComponent(clientId)}` : "/api/stats";
         const { data: resData } = await apiClient.get<Stats>(url);
         if (active) {
           setData(resData);

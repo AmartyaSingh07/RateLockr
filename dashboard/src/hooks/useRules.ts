@@ -31,7 +31,7 @@ export function useRules() {
 
     const fetchRules = async () => {
       try {
-        const { data: resData } = await apiClient.get<RulesResponse>("/rules");
+        const { data: resData } = await apiClient.get<RulesResponse>("/api/rules");
         if (active) {
           setData(resData.rules ?? []);
           setIsLoading(false);
@@ -79,7 +79,7 @@ export function useCreateRule() {
     setIsPending(true);
     setIsError(false);
     try {
-      await apiClient.post("/rules", rule);
+      await apiClient.post("/api/rules", rule);
       window.dispatchEvent(new Event("refetch-rules"));
       window.dispatchEvent(new Event("refetch-stats"));
       options?.onSuccess?.();
@@ -110,7 +110,7 @@ export function useDeleteRule() {
     setIsError(false);
     try {
       await apiClient.delete(
-        `/rules/${encodeURIComponent(client_id)}/${encodeURIComponent(endpoint)}`
+        `/api/rules/${encodeURIComponent(client_id)}/${encodeURIComponent(endpoint)}`
       );
       window.dispatchEvent(new Event("refetch-rules"));
       window.dispatchEvent(new Event("refetch-stats"));

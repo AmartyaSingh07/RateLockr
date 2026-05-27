@@ -37,10 +37,10 @@ exports.app.use(express_1.default.json());
 // ---------------------------------------------------------------------------
 // Route Mounting
 // ---------------------------------------------------------------------------
-exports.app.use("/check", check_1.default);
-exports.app.use("/rules", rules_1.default);
-exports.app.use("/metrics", metrics_1.default);
-exports.app.use("/stats", stats_1.default);
+exports.app.use("/api/check", check_1.default);
+exports.app.use("/api/rules", rules_1.default);
+exports.app.use("/api/metrics", metrics_1.default);
+exports.app.use("/api/stats", stats_1.default);
 exports.app.get("/version", (_req, res) => {
     res.status(200).json({ version: "v1.0.1-seeding-fix" });
 });

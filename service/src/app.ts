@@ -42,10 +42,10 @@ app.use(express.json());
 // Route Mounting
 // ---------------------------------------------------------------------------
 
-app.use("/check", checkRouter);
-app.use("/rules", rulesRouter);
-app.use("/metrics", metricsRouter);
-app.use("/stats", statsRouter);
+app.use("/api/check", checkRouter);
+app.use("/api/rules", rulesRouter);
+app.use("/api/metrics", metricsRouter);
+app.use("/api/stats", statsRouter);
 
 app.get("/version", (_req, res) => {
   res.status(200).json({ version: "v1.0.1-seeding-fix" });
