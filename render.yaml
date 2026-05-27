@@ -2,10 +2,10 @@ services:
   - type: web
     name: ratelockr-api
     runtime: node
-    repo: https://github.com/AmartyaSingh07/RateLockr
     plan: free
-    buildCommand: "cd service && npm install && npm run build"
-    startCommand: "node service/dist/app.js"
+    rootDir: service
+    buildCommand: "npm install && npm run build"
+    startCommand: "node dist/app.js"
     envVars:
       - key: NODE_ENV
         value: production
