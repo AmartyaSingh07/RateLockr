@@ -25,7 +25,7 @@ const PATH_CLIENT_MAPPING: Record<string, string> = {
   "/api/v1/webhooks":  "stripe_webhook_syncer",
 };
 
-export const rateLimiterMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+export const rateLimiterMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
   try {
     // Extract the fully-qualified absolute path, stripping query strings
     const endpoint = req.originalUrl.split('?')[0] as string;
@@ -139,11 +139,10 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
         logger.error({ err }, "Middleware failed to increment deny stat");
       });
 
-      res.status(429).json({
+      return res.status(429).json({
         error: "Too Many Requests",
         message: "Rate limit exceeded. Please try again later."
       });
-      return;
     }
 
     checkRequestsTotal.inc({ algorithm: rule.algorithm, client_id: resolvedClientId, result: "allow" });

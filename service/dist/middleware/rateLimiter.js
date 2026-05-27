@@ -125,11 +125,10 @@ const rateLimiterMiddleware = async (req, res, next) => {
             redis_1.redis.incr((0, keys_1.statsDenyKey)(resolvedClientId)).catch((err) => {
                 logger_1.logger.error({ err }, "Middleware failed to increment deny stat");
             });
-            res.status(429).json({
+            return res.status(429).json({
                 error: "Too Many Requests",
                 message: "Rate limit exceeded. Please try again later."
             });
-            return;
         }
         metrics_1.checkRequestsTotal.inc({ algorithm: rule.algorithm, client_id: resolvedClientId, result: "allow" });
         redis_1.redis.incr((0, keys_1.statsAllowKey)(resolvedClientId)).catch((err) => {
