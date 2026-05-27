@@ -81,8 +81,10 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
       }
     }
 
-    let allowed = true;
-    let remaining = rule.limit;
+    let result = {
+      allowed: true,
+      remaining: rule.limit
+    };
     const nowMs = Date.now();
 
     switch (rule.algorithm) {
@@ -94,8 +96,7 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
           capacity: rule.limit,
           refillRate
         });
-        allowed = resTB.allowed;
-        remaining = resTB.remaining;
+        result = resTB;
         break;
       }
       case "sliding_window": {
@@ -105,8 +106,7 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
           capacity: rule.limit,
           windowSizeMs: rule.window_seconds * 1000
         });
-        allowed = resSW.allowed;
-        remaining = resSW.remaining;
+        result = resSW;
         break;
       }
       case "fixed_window": {
@@ -116,8 +116,7 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
           capacity: rule.limit,
           windowSizeSeconds: rule.window_seconds
         });
-        allowed = resFW.allowed;
-        remaining = resFW.remaining;
+        result = resFW;
         break;
       }
       default: {
@@ -129,10 +128,10 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
 
     const resetTimeUnix = Math.ceil((nowMs + (rule.window_seconds * 1000)) / 1000);
     res.setHeader("X-RateLimit-Limit", String(rule.limit));
-    res.setHeader("X-RateLimit-Remaining", String(Math.max(0, remaining)));
+    res.setHeader("X-RateLimit-Remaining", String(Math.max(0, result.remaining)));
     res.setHeader("X-RateLimit-Reset", String(resetTimeUnix));
 
-    if (!allowed) {
+    if (!result.allowed) {
       res.setHeader("Retry-After", String(rule.window_seconds));
       checkRequestsTotal.inc({ algorithm: rule.algorithm, client_id: resolvedClientId, result: "deny" });
       
@@ -140,7 +139,10 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
         logger.error({ err }, "Middleware failed to increment deny stat");
       });
 
-      res.status(429).json({ error: "Too Many Requests" });
+      res.status(429).json({
+        error: "Too Many Requests",
+        message: "Rate limit exceeded. Please try again later."
+      });
       return;
     }
 
