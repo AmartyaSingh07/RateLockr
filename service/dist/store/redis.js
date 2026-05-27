@@ -176,8 +176,8 @@ class UpstashRedisWrapper {
                 p.del(key);
                 return builder;
             },
-            object(_sub, key) {
-                p.execute(["OBJECT", "IDLETIME", key]);
+            object(_sub, _key) {
+                // Upstash Redis does not support OBJECT IDLETIME in pipelines, so this is a no-op
                 return builder;
             },
             async exec() {
@@ -424,7 +424,7 @@ async function evictExpiredOrStaleKeys() {
             const keys = await scanKeys(pattern);
             statsKeys.push(...keys);
         }
-        if (statsKeys.length > 0) {
+        if (statsKeys.length > 0 && !useUpstash) {
             const MAX_IDLE_TIME_SECONDS = 300;
             const statsPipeline = exports.redis.pipeline();
             for (const key of statsKeys) {
