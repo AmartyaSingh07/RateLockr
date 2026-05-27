@@ -86,10 +86,7 @@ router.get("/", async (_req: Request, res: Response) => {
 
       await redis.hmset(lastCumulativeKey, "allowed", String(allowed), "denied", String(denied)).catch(() => {});
 
-      const timestamp = new Date().toLocaleTimeString("en-US", {
-        hour12: false,
-        timeZone: "UTC",
-      });
+      const timestamp = Math.floor(Date.now() / 1000);
       const snapshot = { timestamp, allowed: currentDeltaAllowed, denied: currentDeltaDenied };
 
       const timelineKey = `rl:metrics:timeline:${clientIdQuery}`;
@@ -97,7 +94,27 @@ router.get("/", async (_req: Request, res: Response) => {
       await redis.ltrim(timelineKey, 0, 29).catch(() => {});
 
       const rawTimeline = await redis.lrange(timelineKey, 0, -1).catch(() => []);
-      const timeline = rawTimeline.map((item) => typeof item === "string" ? JSON.parse(item) : item).reverse();
+      const timeline = rawTimeline.map((item) => {
+        const parsed = typeof item === "string" ? JSON.parse(item) : item;
+        let timeVal: number;
+        if (typeof parsed.timestamp === "number") {
+          timeVal = parsed.timestamp;
+        } else {
+          const parsedInt = parseInt(parsed.timestamp, 10);
+          timeVal = !isNaN(parsedInt) && String(parsedInt) === String(parsed.timestamp) 
+            ? parsedInt 
+            : Math.floor(Date.now() / 1000);
+        }
+        const displayTime = new Date(timeVal * 1000).toLocaleTimeString("en-US", {
+          hour12: false,
+          timeZone: "UTC",
+        });
+        return {
+          timestamp: displayTime,
+          allowed: parsed.allowed,
+          denied: parsed.denied,
+        };
+      }).reverse();
 
       res.status(200).json({
         totalAllowed: allowed,
@@ -217,17 +234,34 @@ router.get("/", async (_req: Request, res: Response) => {
 
     await redis.hmset("rl:metrics:last_cumulative", "allowed", String(totalAllowed), "denied", String(totalDenied)).catch(() => {});
 
-    const timestamp = new Date().toLocaleTimeString("en-US", {
-      hour12: false,
-      timeZone: "UTC",
-    });
+    const timestamp = Math.floor(Date.now() / 1000);
     const snapshot = { timestamp, allowed: currentDeltaAllowed, denied: currentDeltaDenied };
 
     await redis.lpush("rl:metrics:timeline", JSON.stringify(snapshot)).catch(() => {});
     await redis.ltrim("rl:metrics:timeline", 0, 29).catch(() => {});
 
     const rawTimeline = await redis.lrange("rl:metrics:timeline", 0, -1).catch(() => []);
-    const timeline = rawTimeline.map((item) => typeof item === "string" ? JSON.parse(item) : item).reverse();
+    const timeline = rawTimeline.map((item) => {
+      const parsed = typeof item === "string" ? JSON.parse(item) : item;
+      let timeVal: number;
+      if (typeof parsed.timestamp === "number") {
+        timeVal = parsed.timestamp;
+      } else {
+        const parsedInt = parseInt(parsed.timestamp, 10);
+        timeVal = !isNaN(parsedInt) && String(parsedInt) === String(parsed.timestamp) 
+          ? parsedInt 
+          : Math.floor(Date.now() / 1000);
+      }
+      const displayTime = new Date(timeVal * 1000).toLocaleTimeString("en-US", {
+        hour12: false,
+        timeZone: "UTC",
+      });
+      return {
+        timestamp: displayTime,
+        allowed: parsed.allowed,
+        denied: parsed.denied,
+      };
+    }).reverse();
 
     // Return payload conforming 100% to camelCase specification contract
     res.status(200).json({
