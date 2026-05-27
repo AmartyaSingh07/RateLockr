@@ -7,7 +7,7 @@
   "main": "dist/app.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only --clear src/app.ts",
-    "build": "tsc",
+    "build": "tsc && cpy \"src/scripts/**/*.lua\" dist/scripts/",
     "start": "node dist/app.js",
     "test": "jest --verbose --forceExit --detectOpenHandles",
     "test:watch": "jest --watch --verbose",
@@ -29,6 +29,7 @@
     "@types/jest": "^29.5.14",
     "@types/node": "^22.15.17",
     "@types/supertest": "^6.0.3",
+    "cpy-cli": "^7.0.0",
     "jest": "^29.7.0",
     "supertest": "^7.1.0",
     "ts-jest": "^29.3.4",

@@ -233,7 +233,7 @@ class UpstashRedisWrapper implements RedisClient {
         return builder;
       },
       object(_sub: string, key: string) {
-        (p as any).run(["OBJECT", "IDLETIME", key]);
+        (p as any).execute(["OBJECT", "IDLETIME", key]);
         return builder;
       },
       async exec() {

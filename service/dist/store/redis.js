@@ -177,7 +177,7 @@ class UpstashRedisWrapper {
                 return builder;
             },
             object(_sub, key) {
-                p.run(["OBJECT", "IDLETIME", key]);
+                p.execute(["OBJECT", "IDLETIME", key]);
                 return builder;
             },
             async exec() {
