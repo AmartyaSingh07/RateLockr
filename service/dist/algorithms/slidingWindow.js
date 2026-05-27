@@ -31,6 +31,7 @@ async function checkSlidingWindow(params) {
     const uniqueId = crypto_1.default.randomUUID(); // Unique member for the ZSET
     try {
         const result = await redis_1.redis["slidingWindow"](key, String(capacity), String(windowSizeMs), String(nowMs), uniqueId);
+        logger_1.logger.info({ key, capacity, windowSizeMs, nowMs, rawResult: JSON.stringify(result) }, "slidingWindow Lua eval raw response");
         // ----- Defensive response parsing -----
         if (!Array.isArray(result) || result.length < 2) {
             logger_1.logger.error({ result, key }, "Unexpected response shape from slidingWindow Lua script");
@@ -38,6 +39,7 @@ async function checkSlidingWindow(params) {
         }
         const allowedRaw = Number(result[0]);
         const remainingRaw = Number(result[1]);
+        logger_1.logger.info({ allowedRaw, remainingRaw, key }, "slidingWindow parsed decision");
         if (Number.isNaN(allowedRaw) || Number.isNaN(remainingRaw)) {
             logger_1.logger.error({ result, key }, "Non-numeric values in slidingWindow Lua response");
             return { allowed: true, remaining: -1 };

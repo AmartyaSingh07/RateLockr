@@ -70,6 +70,11 @@ export async function checkSlidingWindow(
       uniqueId
     );
 
+    logger.info(
+      { key, capacity, windowSizeMs, nowMs, rawResult: JSON.stringify(result) },
+      "slidingWindow Lua eval raw response"
+    );
+
     // ----- Defensive response parsing -----
     if (!Array.isArray(result) || result.length < 2) {
       logger.error(
@@ -81,6 +86,11 @@ export async function checkSlidingWindow(
 
     const allowedRaw = Number(result[0]);
     const remainingRaw = Number(result[1]);
+
+    logger.info(
+      { allowedRaw, remainingRaw, key },
+      "slidingWindow parsed decision"
+    );
 
     if (Number.isNaN(allowedRaw) || Number.isNaN(remainingRaw)) {
       logger.error(
