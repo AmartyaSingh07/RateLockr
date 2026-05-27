@@ -44,8 +44,9 @@ async function checkSlidingWindow(params) {
             logger_1.logger.error({ result, key }, "Non-numeric values in slidingWindow Lua response");
             return { allowed: true, remaining: -1 };
         }
+        const allowed = remainingRaw >= 0;
         return {
-            allowed: allowedRaw === 1,
+            allowed,
             remaining: remainingRaw,
         };
     }

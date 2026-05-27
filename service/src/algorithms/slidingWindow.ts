@@ -100,8 +100,10 @@ export async function checkSlidingWindow(
       return { allowed: true, remaining: -1 };
     }
 
+    const allowed = remainingRaw >= 0;
+
     return {
-      allowed: allowedRaw === 1,
+      allowed,
       remaining: remainingRaw,
     };
   } catch (err) {
