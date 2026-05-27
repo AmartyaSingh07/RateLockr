@@ -27,17 +27,22 @@ const PATH_CLIENT_MAPPING: Record<string, string> = {
 
 export const rateLimiterMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const endpoint = req.originalUrl.split("?")[0]!;
+    const endpoint = req.path.startsWith("/api") ? req.path : `/api${req.path}`;
     
     // Resolve Client ID from headers, query, body, or path mapping
+    const rawClientId = req.headers["x-client-id"] || req.headers["X-Client-ID"];
     const resolvedClientId = 
-      (req.headers["x-client-id"] as string) ||
+      (Array.isArray(rawClientId) ? rawClientId[0] : rawClientId) ||
       (req.query["clientId"] as string) ||
       (req.query["client_id"] as string) ||
       (req.body && req.body.clientId) ||
       (req.body && req.body.client_id) ||
       PATH_CLIENT_MAPPING[endpoint] ||
       "global";
+
+    if (resolvedClientId === "global") {
+      logger.warn({ endpoint }, "⚠️ Unmatched rate limiting pipeline execution - falling back to 'global' client ID");
+    }
 
     let ruleDataRaw = null;
     try {
