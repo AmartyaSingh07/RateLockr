@@ -14,6 +14,7 @@ const check_1 = __importDefault(require("./routes/check"));
 const rules_1 = __importDefault(require("./routes/rules"));
 const metrics_1 = __importDefault(require("./routes/metrics"));
 const stats_1 = __importDefault(require("./routes/stats"));
+const rateLimiter_1 = require("./middleware/rateLimiter");
 // =============================================================================
 // Express Application
 // =============================================================================
@@ -41,6 +42,13 @@ exports.app.use("/api/check", check_1.default);
 exports.app.use("/api/rules", rules_1.default);
 exports.app.use("/api/metrics", metrics_1.default);
 exports.app.use("/api/stats", stats_1.default);
+const mockRouter = express_1.default.Router();
+mockRouter.get('/v1/search', rateLimiter_1.rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Search results fetched successfully." }));
+mockRouter.post('/v1/login', rateLimiter_1.rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Authentication gateway cleared." }));
+mockRouter.post('/v1/webhooks', rateLimiter_1.rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Webhook synchronized securely." }));
+mockRouter.get('/v1/analytics', rateLimiter_1.rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Analytics packet ingested." }));
+mockRouter.post('/v1/checkout', rateLimiter_1.rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Checkout order processed successfully." }));
+exports.app.use('/api', mockRouter);
 exports.app.get("/version", (_req, res) => {
     res.status(200).json({ version: "v1.0.1-seeding-fix" });
 });
