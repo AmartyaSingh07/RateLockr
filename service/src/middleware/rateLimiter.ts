@@ -27,18 +27,21 @@ const PATH_CLIENT_MAPPING: Record<string, string> = {
 
 export const rateLimiterMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
+    // Extract the fully-qualified absolute path, stripping query strings
     const endpoint = req.originalUrl.split('?')[0] as string;
     
-    // Resolve Client ID from headers, query, body, or path mapping
+    // Resolve Client ID — case-insensitive header extraction with Array guard
+    const rawClientId = req.headers["x-client-id"] || req.headers["X-Client-ID"];
     const resolvedClientId = 
-      (req.headers["x-client-id"] as string) || 
-      (req.headers["X-Client-ID"] as string) || 
+      (Array.isArray(rawClientId) ? rawClientId[0] : (rawClientId as string)) ||
       (req.query["clientId"] as string) ||
       (req.query["client_id"] as string) ||
       (req.body && req.body.clientId) ||
       (req.body && req.body.client_id) ||
       PATH_CLIENT_MAPPING[endpoint] ||
       "global";
+
+    logger.info({ endpoint, resolvedClientId }, "Rate limiter intercepting request");
 
     if (resolvedClientId === "global") {
       console.log(`[WARN] Unmatched rate limiting pipeline execution: falling back to 'global' client ID for endpoint: ${endpoint}`);
