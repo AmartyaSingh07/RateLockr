@@ -3,9 +3,9 @@ services:
     name: ratelockr-api
     runtime: node
     plan: free
-    rootDir: service
+    rootDirectory: service
     buildCommand: "npm install && npm run build"
-    startCommand: "node dist/app.js"
+    startCommand: "npm start"
     envVars:
       - key: NODE_ENV
         value: production
