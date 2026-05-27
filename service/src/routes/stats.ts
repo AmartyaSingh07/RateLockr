@@ -86,7 +86,10 @@ router.get("/", async (_req: Request, res: Response) => {
 
       await redis.hmset(lastCumulativeKey, "allowed", String(allowed), "denied", String(denied)).catch(() => {});
 
-      const timestamp = new Date().toLocaleTimeString();
+      const timestamp = new Date().toLocaleTimeString("en-US", {
+        hour12: false,
+        timeZone: "UTC",
+      });
       const snapshot = { timestamp, allowed: currentDeltaAllowed, denied: currentDeltaDenied };
 
       const timelineKey = `rl:metrics:timeline:${clientIdQuery}`;
@@ -214,7 +217,10 @@ router.get("/", async (_req: Request, res: Response) => {
 
     await redis.hmset("rl:metrics:last_cumulative", "allowed", String(totalAllowed), "denied", String(totalDenied)).catch(() => {});
 
-    const timestamp = new Date().toLocaleTimeString();
+    const timestamp = new Date().toLocaleTimeString("en-US", {
+      hour12: false,
+      timeZone: "UTC",
+    });
     const snapshot = { timestamp, allowed: currentDeltaAllowed, denied: currentDeltaDenied };
 
     await redis.lpush("rl:metrics:timeline", JSON.stringify(snapshot)).catch(() => {});
