@@ -48,14 +48,11 @@ app.use("/api/rules", rulesRouter);
 app.use("/api/metrics", metricsRouter);
 app.use("/api/stats", statsRouter);
 
-const mockRouter = express.Router();
-mockRouter.get('/v1/search', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Search results fetched successfully." }));
-mockRouter.post('/v1/login', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Authentication gateway cleared." }));
-mockRouter.post('/v1/webhooks', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Webhook synchronized securely." }));
-mockRouter.get('/v1/analytics', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Analytics packet ingested." }));
-mockRouter.post('/v1/checkout', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Checkout order processed successfully." }));
-
-app.use('/api', mockRouter);
+app.get('/api/v1/search', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Search results fetched successfully." }));
+app.post('/api/v1/login', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Authentication gateway cleared." }));
+app.post('/api/v1/webhooks', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Webhook synchronized securely." }));
+app.get('/api/v1/analytics', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Analytics packet ingested." }));
+app.post('/api/v1/checkout', rateLimiterMiddleware, (_req, res) => res.json({ success: true, message: "Checkout order processed successfully." }));
 
 app.get("/version", (_req, res) => {
   res.status(200).json({ version: "v1.0.1-seeding-fix" });
