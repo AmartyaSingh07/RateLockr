@@ -3,8 +3,8 @@
     /* ── Language & Environment ────────────────────────────────────────── */
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "CommonJS",
-    "moduleResolution": "node10",
+    "module": "ES2022",
+    "moduleResolution": "bundler",
 
     /* ── Output ────────────────────────────────────────────────────────── */
     "outDir": "./dist",
