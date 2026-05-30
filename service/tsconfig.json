@@ -3,8 +3,9 @@
     /* ── Language & Environment ────────────────────────────────────────── */
     "target": "ES2022",
     "lib": ["ES2022"],
-    "module": "ES2022",
-    "moduleResolution": "bundler",
+    "module": "Node16",
+    "moduleResolution": "node16",
+    "types": ["node"],
 
     /* ── Output ────────────────────────────────────────────────────────── */
     "outDir": "./dist",
