@@ -122,8 +122,6 @@ export function AllowDenyChart({ stats, clientId, onClearFilter }: AllowDenyChar
               allowDecimals={false}
               style={{ fontFamily: "'JetBrains Mono', monospace" }}
               domain={[0, "auto"]}
-              allowDataOverflow={false}
-              ticks={[0, 2, 4, 6, 8, 10]}
             />
 
             <Tooltip

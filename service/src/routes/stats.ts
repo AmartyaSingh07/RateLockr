@@ -77,64 +77,92 @@ async function scanKeys(pattern: string): Promise<string[]> {
 // Scans the rl:metrics:bucket[:<clientId>]:<unix-second> keys written by the
 // middleware and assembles them into a 30-point timeline ordered oldest→newest.
 //
-// The bucket keys live for 2 minutes (TTL set by middleware), so we look back
-// at most 60 seconds and take the 30 most recent non-empty seconds.
+// Always returns exactly 30 data points covering the last 30 seconds.
+// Seconds with no traffic are padded with zeros so Recharts always has
+// enough points to draw visible line segments.
 // ---------------------------------------------------------------------------
-async function buildTimeline(clientId?: string): Promise<Array<{ timestamp: string; allowed: number; denied: number }>> {
+async function buildTimeline(
+  clientId?: string
+): Promise<Array<{ timestamp: string; allowed: number; denied: number }>> {
   try {
-    // Build the scan pattern for either global or per-client buckets
     const pattern = clientId
       ? `rl:metrics:bucket:${clientId}:*`
-      : `rl:metrics:bucket:[0-9]*`; // only global buckets (exclude per-client ones)
+      : `rl:metrics:bucket:*`;
 
     const bucketKeys = await scanKeys(pattern);
-    if (bucketKeys.length === 0) return [];
 
-    // Extract the unix-second from each key and sort ascending (oldest first)
-    const keysWithTime: Array<{ key: string; sec: number }> = [];
-    for (const key of bucketKeys) {
-      const parts = key.split(":");
-      const sec = parseInt(parts[parts.length - 1]!, 10);
-      if (!isNaN(sec)) keysWithTime.push({ key, sec });
-    }
-    keysWithTime.sort((a, b) => a.sec - b.sec);
+    // Build a lookup map of sec → { allowed, denied }
+    const bucketMap = new Map<number, { allowed: number; denied: number }>();
 
-    // Take the 30 most recent
-    const recent = keysWithTime.slice(-30);
-
-    // Batch-read all bucket hashes in one pipeline
-    const pipeline = redis.pipeline();
-    for (const { key } of recent) {
-      pipeline.hmget(key, "allowed", "denied");
-    }
-    const results = await pipeline.exec();
-
-    return recent.map(({ sec }, i) => {
-      const rawHmget = unwrapPipeline<string[] | Record<string, string>>(results?.[i]);
-
-      let allowed = 0;
-      let denied  = 0;
-
-      if (rawHmget) {
-        if (Array.isArray(rawHmget)) {
-          // Standard hmget array: ["allowedVal", "deniedVal"]
-          allowed = parseInt(rawHmget[0] ?? "0", 10) || 0;
-          denied  = parseInt(rawHmget[1] ?? "0", 10) || 0;
-        } else if (typeof rawHmget === "object") {
-          // Upstash SDK object: { allowed: "X", denied: "Y" }
-          const obj = rawHmget as Record<string, string>;
-          allowed = parseInt(obj["allowed"] ?? "0", 10) || 0;
-          denied  = parseInt(obj["denied"]  ?? "0", 10) || 0;
-        }
+    if (bucketKeys.length > 0) {
+      // Extract the unix-second from each key
+      const keysWithTime: Array<{ key: string; sec: number }> = [];
+      for (const key of bucketKeys) {
+        const parts = key.split(":");
+        const sec = parseInt(parts[parts.length - 1]!, 10);
+        // Global keys: rl:metrics:bucket:<sec>          (4 parts)
+        // Per-client:  rl:metrics:bucket:<id>:<sec>     (5+ parts)
+        // When building the global timeline, skip per-client keys
+        if (!clientId && parts.length !== 4) continue;
+        if (!isNaN(sec)) keysWithTime.push({ key, sec });
       }
 
-      const displayTime = new Date(sec * 1000).toLocaleTimeString("en-US", {
-        hour12: false,
-        timeZone: "UTC",
-      });
+      if (keysWithTime.length > 0) {
+        // Batch-read all bucket hashes in one pipeline
+        const pipeline = redis.pipeline();
+        for (const { key } of keysWithTime) {
+          pipeline.hmget(key, "allowed", "denied");
+        }
+        const results = await pipeline.exec();
 
-      return { timestamp: displayTime, allowed, denied };
-    });
+        keysWithTime.forEach(({ sec }, i) => {
+          const rawHmget = unwrapPipeline<
+            string[] | Record<string, string>
+          >(results?.[i]);
+
+          let allowed = 0;
+          let denied = 0;
+
+          if (rawHmget) {
+            if (Array.isArray(rawHmget)) {
+              allowed = parseInt(rawHmget[0] ?? "0", 10) || 0;
+              denied  = parseInt(rawHmget[1] ?? "0", 10) || 0;
+            } else if (typeof rawHmget === "object") {
+              const obj = rawHmget as Record<string, string>;
+              allowed = parseInt(obj["allowed"] ?? "0", 10) || 0;
+              denied  = parseInt(obj["denied"]  ?? "0", 10) || 0;
+            }
+          }
+
+          bucketMap.set(sec, { allowed, denied });
+        });
+      }
+    }
+
+    // Always return a full 30-second window, oldest → newest.
+    // Seconds with no traffic are padded with zeros so Recharts
+    // always has enough points to draw visible line segments.
+    const nowSec = Math.floor(Date.now() / 1000);
+    const timeline: Array<{
+      timestamp: string;
+      allowed: number;
+      denied: number;
+    }> = [];
+
+    for (let i = 29; i >= 0; i--) {
+      const sec = nowSec - i;
+      const bucket = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
+      timeline.push({
+        timestamp: new Date(sec * 1000).toLocaleTimeString("en-US", {
+          hour12: false,
+          timeZone: "UTC",
+        }),
+        allowed: bucket.allowed,
+        denied: bucket.denied,
+      });
+    }
+
+    return timeline;
   } catch (err) {
     logger.error({ err, clientId }, "Failed to build timeline from bucket keys");
     return [];
