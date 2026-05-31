@@ -14,6 +14,28 @@ import { logger } from "../lib/logger";
 // Protected by admin API key middleware.
 // =============================================================================
 
+/**
+ * Normalises a single pipeline result across Redis driver formats.
+ *
+ * ioredis  → pipeline.exec() yields [Error|null, value] per command
+ * Upstash  → pipeline.exec() yields the raw value directly
+ *
+ * Returns the unwrapped value, or null if nothing was stored.
+ */
+function unwrapPipeline<T>(result: unknown): T | null {
+  if (result === null || result === undefined) return null;
+  if (
+    Array.isArray(result) &&
+    result.length === 2 &&
+    (result[0] === null || result[0] instanceof Error)
+  ) {
+    // ioredis-style tuple: [error, value]
+    return (result[1] ?? null) as T | null;
+  }
+  // Upstash-style: raw value
+  return result as T;
+}
+
 const router = Router();
 
 router.use(requireAdmin);
@@ -88,10 +110,23 @@ async function buildTimeline(clientId?: string): Promise<Array<{ timestamp: stri
     const results = await pipeline.exec();
 
     return recent.map(({ sec }, i) => {
-      const result = results?.[i];
-      const vals = result && Array.isArray(result) ? (result[1] as (string | null)[]) : null;
-      const allowed = vals ? (parseInt(vals[0] ?? "0", 10) || 0) : 0;
-      const denied  = vals ? (parseInt(vals[1] ?? "0", 10) || 0) : 0;
+      const rawHmget = unwrapPipeline<string[] | Record<string, string>>(results?.[i]);
+
+      let allowed = 0;
+      let denied  = 0;
+
+      if (rawHmget) {
+        if (Array.isArray(rawHmget)) {
+          // Standard hmget array: ["allowedVal", "deniedVal"]
+          allowed = parseInt(rawHmget[0] ?? "0", 10) || 0;
+          denied  = parseInt(rawHmget[1] ?? "0", 10) || 0;
+        } else if (typeof rawHmget === "object") {
+          // Upstash SDK object: { allowed: "X", denied: "Y" }
+          const obj = rawHmget as Record<string, string>;
+          allowed = parseInt(obj["allowed"] ?? "0", 10) || 0;
+          denied  = parseInt(obj["denied"]  ?? "0", 10) || 0;
+        }
+      }
 
       const displayTime = new Date(sec * 1000).toLocaleTimeString("en-US", {
         hour12: false,
@@ -166,10 +201,8 @@ router.get("/", async (_req: Request, res: Response) => {
         const pipelineResults = await pipeline.exec() ?? [];
 
         for (let i = 0; i < clientList.length; i++) {
-          const allowResult = pipelineResults[i * 2];
-          const denyResult  = pipelineResults[i * 2 + 1];
-          const allowVal = allowResult && Array.isArray(allowResult) ? allowResult[1] : null;
-          const denyVal  = denyResult  && Array.isArray(denyResult)  ? denyResult[1]  : null;
+          const allowVal = unwrapPipeline<string>(pipelineResults[i * 2]);
+          const denyVal  = unwrapPipeline<string>(pipelineResults[i * 2 + 1]);
 
           const allowed = parseInt((allowVal as string) ?? "0", 10) || 0;
           const denied  = parseInt((denyVal  as string) ?? "0", 10) || 0;
@@ -196,8 +229,8 @@ router.get("/", async (_req: Request, res: Response) => {
         for (const key of ruleKeys) rulesPipeline.hlen(key);
         const rulesResults = await rulesPipeline.exec() ?? [];
         for (const result of rulesResults) {
-          const countVal = result && Array.isArray(result) ? result[1] : 0;
-          activeRules += (countVal as number) || 0;
+          const countVal = unwrapPipeline<number>(result) ?? 0;
+          activeRules += countVal;
         }
       } catch (rulesErr) {
         logger.error({ rulesErr }, "Error executing rules check pipeline");
