@@ -46,7 +46,7 @@ describe("High-Concurrency Atomicity Test", () => {
     // Create an array of 20 un-awaited Supertest POST requests
     const promises = Array.from({ length: TOTAL_REQUESTS }).map(() => {
       return request(app)
-        .post("/check")
+        .post("/api/check")
         .send({
           client_id: TEST_CLIENT_ID,
           endpoint: TEST_ENDPOINT
