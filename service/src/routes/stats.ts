@@ -6,18 +6,12 @@ import { logger } from "../lib/logger";
 // =============================================================================
 // GET /stats — Global Telemetry Aggregator
 // =============================================================================
-// Scans all stats:allow:* and stats:deny:* counters in Redis, computes
-// global totals, per-client deny rates, and returns the top 5 violators.
+// Reads lifetime counters (stats:allow:*, stats:deny:*) for totals and
+// per-client data. Reads time-bucket keys (rl:metrics:bucket:<sec>) written
+// by the middleware on every request for the timeline — so the chart shows
+// real traffic, not a poll-frequency artifact.
 //
 // Protected by admin API key middleware.
-//
-// Response shape (matches dashboard useStats hook):
-// {
-//   totalAllowed: number,
-//   totalDenied:  number,
-//   activeRules:  number,
-//   topThrottled: string[]
-// }
 // =============================================================================
 
 const router = Router();
@@ -32,8 +26,7 @@ interface ClientStats {
 }
 
 /**
- * Scan Redis for all keys matching a pattern and collect them without
- * blocking the event loop. Uses SCAN with a reasonable COUNT hint.
+ * Scan Redis for all keys matching a pattern without blocking the event loop.
  */
 async function scanKeys(pattern: string): Promise<string[]> {
   try {
@@ -42,16 +35,11 @@ async function scanKeys(pattern: string): Promise<string[]> {
 
     do {
       const result = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
-      if (!result || !Array.isArray(result)) {
-        break;
-      }
+      if (!result || !Array.isArray(result)) break;
       const [nextCursor, batch] = result;
       cursor = nextCursor || "0";
-      if (batch && Array.isArray(batch)) {
-        keys.push(...batch);
-      } else {
-        break;
-      }
+      if (batch && Array.isArray(batch)) keys.push(...batch);
+      else break;
     } while (cursor !== "0");
 
     return keys;
@@ -61,10 +49,68 @@ async function scanKeys(pattern: string): Promise<string[]> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// buildTimeline
+// ---------------------------------------------------------------------------
+// Scans the rl:metrics:bucket[:<clientId>]:<unix-second> keys written by the
+// middleware and assembles them into a 30-point timeline ordered oldest→newest.
+//
+// The bucket keys live for 2 minutes (TTL set by middleware), so we look back
+// at most 60 seconds and take the 30 most recent non-empty seconds.
+// ---------------------------------------------------------------------------
+async function buildTimeline(clientId?: string): Promise<Array<{ timestamp: string; allowed: number; denied: number }>> {
+  try {
+    // Build the scan pattern for either global or per-client buckets
+    const pattern = clientId
+      ? `rl:metrics:bucket:${clientId}:*`
+      : `rl:metrics:bucket:[0-9]*`; // only global buckets (exclude per-client ones)
+
+    const bucketKeys = await scanKeys(pattern);
+    if (bucketKeys.length === 0) return [];
+
+    // Extract the unix-second from each key and sort ascending (oldest first)
+    const keysWithTime: Array<{ key: string; sec: number }> = [];
+    for (const key of bucketKeys) {
+      const parts = key.split(":");
+      const sec = parseInt(parts[parts.length - 1]!, 10);
+      if (!isNaN(sec)) keysWithTime.push({ key, sec });
+    }
+    keysWithTime.sort((a, b) => a.sec - b.sec);
+
+    // Take the 30 most recent
+    const recent = keysWithTime.slice(-30);
+
+    // Batch-read all bucket hashes in one pipeline
+    const pipeline = redis.pipeline();
+    for (const { key } of recent) {
+      pipeline.hmget(key, "allowed", "denied");
+    }
+    const results = await pipeline.exec();
+
+    return recent.map(({ sec }, i) => {
+      const result = results?.[i];
+      const vals = result && Array.isArray(result) ? (result[1] as (string | null)[]) : null;
+      const allowed = vals ? (parseInt(vals[0] ?? "0", 10) || 0) : 0;
+      const denied  = vals ? (parseInt(vals[1] ?? "0", 10) || 0) : 0;
+
+      const displayTime = new Date(sec * 1000).toLocaleTimeString("en-US", {
+        hour12: false,
+        timeZone: "UTC",
+      });
+
+      return { timestamp: displayTime, allowed, denied };
+    });
+  } catch (err) {
+    logger.error({ err, clientId }, "Failed to build timeline from bucket keys");
+    return [];
+  }
+}
+
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const clientIdQuery = (_req.query["clientId"] || _req.query["client_id"]) as string | undefined;
 
+    // ── Per-client stats path ────────────────────────────────────────────────
     if (clientIdQuery) {
       const [allowVal, denyVal, ruleCount] = await Promise.all([
         redis.get(`stats:allow:${clientIdQuery}`).catch(() => null),
@@ -73,48 +119,10 @@ router.get("/", async (_req: Request, res: Response) => {
       ]);
 
       const allowed = parseInt(allowVal ?? "0", 10) || 0;
-      const denied = parseInt(denyVal ?? "0", 10) || 0;
+      const denied  = parseInt(denyVal  ?? "0", 10) || 0;
 
-      // ─── Time-Series Buffering for Client ───
-      const lastCumulativeKey = `rl:metrics:last_cumulative:${clientIdQuery}`;
-      const prevData = await redis.hmget(lastCumulativeKey, "allowed", "denied").catch(() => [null, null]);
-      const prevAllowed = prevData && prevData[0] ? parseInt(prevData[0], 10) : null;
-      const prevDenied = prevData && prevData[1] ? parseInt(prevData[1], 10) : null;
-
-      const currentDeltaAllowed = prevAllowed !== null ? Math.max(0, allowed - prevAllowed) : 0;
-      const currentDeltaDenied = prevDenied !== null ? Math.max(0, denied - prevDenied) : 0;
-
-      await redis.hmset(lastCumulativeKey, "allowed", String(allowed), "denied", String(denied)).catch(() => {});
-
-      const timestamp = Math.floor(Date.now() / 1000);
-      const snapshot = { timestamp, allowed: currentDeltaAllowed, denied: currentDeltaDenied };
-
-      const timelineKey = `rl:metrics:timeline:${clientIdQuery}`;
-      await redis.lpush(timelineKey, JSON.stringify(snapshot)).catch(() => {});
-      await redis.ltrim(timelineKey, 0, 29).catch(() => {});
-
-      const rawTimeline = await redis.lrange(timelineKey, 0, -1).catch(() => []);
-      const timeline = rawTimeline.map((item) => {
-        const parsed = typeof item === "string" ? JSON.parse(item) : item;
-        let timeVal: number;
-        if (typeof parsed.timestamp === "number") {
-          timeVal = parsed.timestamp;
-        } else {
-          const parsedInt = parseInt(parsed.timestamp, 10);
-          timeVal = !isNaN(parsedInt) && String(parsedInt) === String(parsed.timestamp) 
-            ? parsedInt 
-            : Math.floor(Date.now() / 1000);
-        }
-        const displayTime = new Date(timeVal * 1000).toLocaleTimeString("en-US", {
-          hour12: false,
-          timeZone: "UTC",
-        });
-        return {
-          timestamp: displayTime,
-          allowed: parsed.allowed,
-          denied: parsed.denied,
-        };
-      }).reverse();
+      // Timeline is built from bucket keys — no delta math, no polling artifacts
+      const timeline = await buildTimeline(clientIdQuery);
 
       res.status(200).json({
         totalAllowed: allowed,
@@ -126,36 +134,25 @@ router.get("/", async (_req: Request, res: Response) => {
       return;
     }
 
-    // Discover all keys using robust SCAN fallbacks
+    // ── Global stats path ────────────────────────────────────────────────────
     const [allowKeys, denyKeys, ruleKeys] = await Promise.all([
-      scanKeys("stats:allow:*").catch(() => []),
-      scanKeys("stats:deny:*").catch(() => []),
-      scanKeys("rl:rules:*").catch(() => []),
+      scanKeys("stats:allow:*").catch(() => [] as string[]),
+      scanKeys("stats:deny:*").catch(()  => [] as string[]),
+      scanKeys("rl:rules:*").catch(()    => [] as string[]),
     ]);
 
-    const allowKeysList = allowKeys ?? [];
-    const denyKeysList = denyKeys ?? [];
-    const ruleKeysList = ruleKeys ?? [];
-
-    // Extract unique client IDs
+    // Extract unique client IDs from counter keys
     const clientIds = new Set<string>();
-
-    for (const key of allowKeysList) {
-      if (key && typeof key === "string" && key.startsWith("stats:allow:")) {
-        const clientId = key.slice("stats:allow:".length);
-        clientIds.add(clientId);
-      }
+    for (const key of allowKeys) {
+      if (key.startsWith("stats:allow:")) clientIds.add(key.slice("stats:allow:".length));
     }
-    for (const key of denyKeysList) {
-      if (key && typeof key === "string" && key.startsWith("stats:deny:")) {
-        const clientId = key.slice("stats:deny:".length);
-        clientIds.add(clientId);
-      }
+    for (const key of denyKeys) {
+      if (key.startsWith("stats:deny:"))  clientIds.add(key.slice("stats:deny:".length));
     }
 
     const clientList = Array.from(clientIds);
     let totalAllowed = 0;
-    let totalDenied = 0;
+    let totalDenied  = 0;
     const clients: ClientStats[] = [];
 
     // Pipelined batch counter lookup
@@ -166,29 +163,24 @@ router.get("/", async (_req: Request, res: Response) => {
           pipeline.get(`stats:allow:${clientId}`);
           pipeline.get(`stats:deny:${clientId}`);
         }
-
-        const pipelineResults = await pipeline.exec();
-        const results = pipelineResults ?? [];
+        const pipelineResults = await pipeline.exec() ?? [];
 
         for (let i = 0; i < clientList.length; i++) {
-          const allowResult = results?.[i * 2];
-          const denyResult = results?.[i * 2 + 1];
+          const allowResult = pipelineResults[i * 2];
+          const denyResult  = pipelineResults[i * 2 + 1];
+          const allowVal = allowResult && Array.isArray(allowResult) ? allowResult[1] : null;
+          const denyVal  = denyResult  && Array.isArray(denyResult)  ? denyResult[1]  : null;
 
-          const allowResultValue = allowResult && Array.isArray(allowResult) ? allowResult[1] : null;
-          const denyResultValue = denyResult && Array.isArray(denyResult) ? denyResult[1] : null;
-
-          const allowed = parseInt((allowResultValue as string) ?? "0", 10) || 0;
-          const denied = parseInt((denyResultValue as string) ?? "0", 10) || 0;
-          const clientTotal = allowed + denied;
-
+          const allowed = parseInt((allowVal as string) ?? "0", 10) || 0;
+          const denied  = parseInt((denyVal  as string) ?? "0", 10) || 0;
           totalAllowed += allowed;
-          totalDenied += denied;
+          totalDenied  += denied;
 
           clients.push({
             clientId: clientList[i]!,
             allowed,
             denied,
-            denyRate: clientTotal > 0 ? denied / clientTotal : 0,
+            denyRate: (allowed + denied) > 0 ? denied / (allowed + denied) : 0,
           });
         }
       } catch (pipelineErr) {
@@ -196,90 +188,45 @@ router.get("/", async (_req: Request, res: Response) => {
       }
     }
 
-    // Compute active rules count safely
+    // Active rules count
     let activeRules = 0;
-
-    if (ruleKeysList.length > 0) {
+    if (ruleKeys.length > 0) {
       try {
         const rulesPipeline = redis.pipeline();
-        for (const key of ruleKeysList) {
-          rulesPipeline.hlen(key);
-        }
-        const rulesResults = await rulesPipeline.exec();
-        const results = rulesResults ?? [];
-
-        for (const result of results) {
+        for (const key of ruleKeys) rulesPipeline.hlen(key);
+        const rulesResults = await rulesPipeline.exec() ?? [];
+        for (const result of rulesResults) {
           const countVal = result && Array.isArray(result) ? result[1] : 0;
-          activeRules += (countVal as number) ?? 0;
+          activeRules += (countVal as number) || 0;
         }
       } catch (rulesErr) {
         logger.error({ rulesErr }, "Error executing rules check pipeline");
       }
     }
 
-    // Extract top 5 violators client IDs
+    // Top 5 violators
     const topThrottled = clients
-      .filter((c) => c && c.denied > 0)
+      .filter((c) => c.denied > 0)
       .sort((a, b) => b.denied - a.denied)
       .slice(0, 5)
-      .map((c) => c.clientId) ?? [];
+      .map((c) => c.clientId);
 
-    // ─── Time-Series Buffering in Redis ───
-    const prevData = await redis.hmget("rl:metrics:last_cumulative", "allowed", "denied").catch(() => [null, null]);
-    const prevAllowed = prevData && prevData[0] ? parseInt(prevData[0], 10) : null;
-    const prevDenied = prevData && prevData[1] ? parseInt(prevData[1], 10) : null;
+    // Timeline from bucket keys — accurate regardless of polling frequency
+    const timeline = await buildTimeline();
 
-    const currentDeltaAllowed = prevAllowed !== null ? Math.max(0, totalAllowed - prevAllowed) : 0;
-    const currentDeltaDenied = prevDenied !== null ? Math.max(0, totalDenied - prevDenied) : 0;
-
-    await redis.hmset("rl:metrics:last_cumulative", "allowed", String(totalAllowed), "denied", String(totalDenied)).catch(() => {});
-
-    const timestamp = Math.floor(Date.now() / 1000);
-    const snapshot = { timestamp, allowed: currentDeltaAllowed, denied: currentDeltaDenied };
-
-    await redis.lpush("rl:metrics:timeline", JSON.stringify(snapshot)).catch(() => {});
-    await redis.ltrim("rl:metrics:timeline", 0, 29).catch(() => {});
-
-    const rawTimeline = await redis.lrange("rl:metrics:timeline", 0, -1).catch(() => []);
-    const timeline = rawTimeline.map((item) => {
-      const parsed = typeof item === "string" ? JSON.parse(item) : item;
-      let timeVal: number;
-      if (typeof parsed.timestamp === "number") {
-        timeVal = parsed.timestamp;
-      } else {
-        const parsedInt = parseInt(parsed.timestamp, 10);
-        timeVal = !isNaN(parsedInt) && String(parsedInt) === String(parsed.timestamp) 
-          ? parsedInt 
-          : Math.floor(Date.now() / 1000);
-      }
-      const displayTime = new Date(timeVal * 1000).toLocaleTimeString("en-US", {
-        hour12: false,
-        timeZone: "UTC",
-      });
-      return {
-        timestamp: displayTime,
-        allowed: parsed.allowed,
-        denied: parsed.denied,
-      };
-    }).reverse();
-
-    // Return payload conforming 100% to camelCase specification contract
     res.status(200).json({
-      totalAllowed: totalAllowed ?? 0,
-      totalDenied: totalDenied ?? 0,
-      activeRules: activeRules ?? 0,
-      topThrottled: topThrottled ?? [],
+      totalAllowed,
+      totalDenied,
+      activeRules,
+      topThrottled,
       timeline,
     });
   } catch (err) {
-    // GLOBAL ABSOLUTE CATCH GUARD — return 200 with zeroed values instead of 500
-    logger.error({ err }, "Failed to aggregate stats, returning fallback statistics");
-    res.status(200).json({
-      totalAllowed: 0,
-      totalDenied: 0,
-      activeRules: 0,
-      topThrottled: [],
-      timeline: [],
+    // Log the real error — do NOT silently return zeros, it hides bugs
+    logger.error({ err }, "Failed to aggregate stats");
+    res.status(500).json({
+      error: "Internal Server Error",
+      message: "Failed to retrieve statistics. Check service logs.",
     });
   }
 });

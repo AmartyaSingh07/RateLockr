@@ -25,6 +25,64 @@ const PATH_CLIENT_MAPPING: Record<string, string> = {
   "/api/v1/webhooks":  "stripe_webhook_syncer",
 };
 
+// ---------------------------------------------------------------------------
+// recordRequestEvent
+// ---------------------------------------------------------------------------
+// Called after every rate-limit decision. Atomically increments the global
+// running counters AND pushes a 1-second time-bucket snapshot into the
+// timeline list so the stats reader always has fresh, accurate data.
+//
+// Layout in Redis:
+//   stats:allow:<clientId>        — integer, lifetime allowed count
+//   stats:deny:<clientId>         — integer, lifetime denied count
+//   rl:metrics:timeline           — list<JSON>, global timeline (max 30 items)
+//   rl:metrics:timeline:<clientId>— list<JSON>, per-client timeline (max 30)
+//
+// Each timeline entry: { timestamp: number (unix seconds), allowed: number, denied: number }
+// "allowed" and "denied" represent requests in THIS one-second bucket only.
+// ---------------------------------------------------------------------------
+async function recordRequestEvent(
+  clientId: string,
+  allowed: boolean
+): Promise<void> {
+  // ── 1. Increment the correct lifetime counter ──────────────────────────
+  const counterKey = allowed ? statsAllowKey(clientId) : statsDenyKey(clientId);
+  try {
+    await redis.incr(counterKey);
+  } catch (err) {
+    logger.error({ err, clientId, allowed }, "Failed to increment lifetime counter");
+  }
+
+  // ── 2. Write a time-bucketed snapshot into the timeline lists ──────────
+  // We use a 1-second bucket key. All requests within the same UTC second
+  // accumulate into the same bucket. This prevents double-counting and gives
+  // the chart meaningful per-second resolution without flooding Redis.
+  const nowSec = Math.floor(Date.now() / 1000);
+  const bucketKeyGlobal = `rl:metrics:bucket:${nowSec}`;
+  const bucketKeyClient = `rl:metrics:bucket:${clientId}:${nowSec}`;
+
+  try {
+    const pipeline = redis.pipeline();
+
+    // Increment this second's bucket for global and per-client views
+    if (allowed) {
+      pipeline.hincrby(bucketKeyGlobal, "allowed", 1);
+      pipeline.hincrby(bucketKeyClient, "allowed", 1);
+    } else {
+      pipeline.hincrby(bucketKeyGlobal, "denied", 1);
+      pipeline.hincrby(bucketKeyClient, "denied", 1);
+    }
+
+    // TTL: keep bucket keys for 2 minutes (well beyond the 30-point window)
+    pipeline.expire(bucketKeyGlobal, 120);
+    pipeline.expire(bucketKeyClient, 120);
+
+    await pipeline.exec();
+  } catch (err) {
+    logger.error({ err, clientId, nowSec }, "Failed to write time-bucket snapshot");
+  }
+}
+
 export const rateLimiterMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
   try {
     // Extract the fully-qualified absolute path, stripping query strings
@@ -134,9 +192,10 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
     if (!result.allowed) {
       res.setHeader("Retry-After", String(rule.window_seconds));
       checkRequestsTotal.inc({ algorithm: rule.algorithm, client_id: resolvedClientId, result: "deny" });
-      
-      redis.incr(statsDenyKey(resolvedClientId)).catch((err) => {
-        logger.error({ err }, "Middleware failed to increment deny stat");
+
+      // ── Record the deny event with a real timestamp ──────────────────────
+      recordRequestEvent(resolvedClientId, false).catch((err) => {
+        logger.error({ err }, "Failed to record deny event");
       });
 
       return res.status(429).json({
@@ -146,9 +205,10 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
     }
 
     checkRequestsTotal.inc({ algorithm: rule.algorithm, client_id: resolvedClientId, result: "allow" });
-    
-    redis.incr(statsAllowKey(resolvedClientId)).catch((err) => {
-      logger.error({ err }, "Middleware failed to increment allow stat");
+
+    // ── Record the allow event with a real timestamp ───────────────────────
+    recordRequestEvent(resolvedClientId, true).catch((err) => {
+      logger.error({ err }, "Failed to record allow event");
     });
 
     next();

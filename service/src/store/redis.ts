@@ -96,12 +96,11 @@ class UpstashRedisWrapper implements RedisClient {
   }
 
   async ping() {
-    try {
-      const res = await this.client.ping();
-      return res === "PONG" ? "PONG" : String(res);
-    } catch {
-      return "PONG";
+    const res = await this.client.ping();
+    if (res !== "PONG") {
+      throw new Error(`Upstash ping returned unexpected response: ${String(res)}`);
     }
+    return "PONG";
   }
 
   defineCommand(name: string, definition: { numberOfKeys: number; lua: string }) {
@@ -207,41 +206,42 @@ class UpstashRedisWrapper implements RedisClient {
 
   pipeline() {
     const p = this.client.pipeline();
-    const builder = {
-      get(key: string) {
-        p.get(key);
-        return builder;
+
+    // A dynamic Proxy that forwards any command to the underlying Upstash
+    // pipeline, preserving the fluent chainable interface.  This covers
+    // hincrby, expire, hmget, and every other command the new telemetry
+    // architecture (or future code) might call without requiring manual
+    // enumeration.
+    const builder: any = new Proxy(
+      {
+        async exec() {
+          const results = await p.exec();
+          if (!results) return null;
+          // Normalise to the [error, value] tuple shape ioredis returns
+          return results.map((res: any) => [null, res]);
+        },
       },
-      hgetall(key: string) {
-        p.hgetall(key);
-        return builder;
-      },
-      hlen(key: string) {
-        p.hlen(key);
-        return builder;
-      },
-      ttl(key: string) {
-        p.ttl(key);
-        return builder;
-      },
-      type(key: string) {
-        p.type(key);
-        return builder;
-      },
-      del(key: string) {
-        p.del(key);
-        return builder;
-      },
-      object(_sub: string, _key: string) {
-        // Upstash Redis does not support OBJECT IDLETIME in pipelines, so this is a no-op
-        return builder;
-      },
-      async exec() {
-        const results = await p.exec();
-        if (!results) return null;
-        return results.map((res: any) => [null, res]);
+      {
+        get(target: any, prop: string) {
+          // exec lives on the target object itself
+          if (prop === "exec") return target.exec;
+
+          // "object" is a known no-op for Upstash (OBJECT IDLETIME unsupported)
+          if (prop === "object") return () => builder;
+
+          // Every other property is forwarded to the Upstash pipeline
+          if (typeof (p as any)[prop] === "function") {
+            return (...args: any[]) => {
+              (p as any)[prop](...args);
+              return builder;
+            };
+          }
+
+          return target[prop];
+        },
       }
-    };
+    );
+
     return builder;
   }
 }
@@ -601,6 +601,13 @@ export function stopEvictionRoutine(): void {
 export async function initRedis(): Promise<void> {
   try {
     await redis.connect();
+
+    // Eagerly validate connectivity — crash loud at boot if Redis is
+    // unreachable or credentials are wrong, instead of discovering it
+    // silently on the first request.
+    await redis.ping();
+    logger.info("Redis PING succeeded — connection validated");
+
     const scripts = await bootstrapLuaScripts();
     logger.info(
       { scriptsRegistered: scripts.length, scripts },
