@@ -7,6 +7,7 @@ import { RulesTable } from "./components/RulesTable";
 import { CreateRuleModal } from "./components/CreateRuleModal";
 import { ScrambledText } from "./components/ScrambledText";
 import SplashCursor from "./components/SplashCursor";
+import { TrafficSimulator } from "./components/TrafficSimulator";
 import {
   Activity,
   Shield,
@@ -269,6 +270,7 @@ function Dashboard() {
               {/* ── Row 2: Chart (2/3) + Top Throttled (1/3) ── */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
+                  <TrafficSimulator />
                   <AllowDenyChart
                     stats={stats}
                     clientId={selectedClientId}
