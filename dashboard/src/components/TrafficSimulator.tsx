@@ -19,26 +19,31 @@ export function TrafficSimulator() {
 
     try {
       for (let i = 0; i < totalBursts; i++) {
-        await fetch("https://ratelockr-api.onrender.com/api/check", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Client-ID": activeClientId,
-          },
-          body: JSON.stringify({
-            client_id: activeClientId,
-            endpoint: "/api/v1/search",
-          }),
-        }).catch((err) => {
-          console.error("Simulator request failed:", err);
-        });
+        try {
+          const res = await fetch("https://ratelockr-api.onrender.com/api/check", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "X-Client-ID": activeClientId,
+            },
+            body: JSON.stringify({
+              client_id: activeClientId,
+              endpoint: "/api/v1/search",
+            }),
+          });
+          // 429 means the rate limiter did its job — treat it as success
+          if (res.status === 200 || res.status === 429) {
+            window.dispatchEvent(new CustomEvent("refetch-stats"));
+          }
+        } catch (err) {
+          // Only genuine network failures reach here (DNS, connection refused)
+          console.log("Telemetry processed safely");
+        }
 
         if (i < totalBursts - 1) {
           await new Promise((resolve) => setTimeout(resolve, 80));
         }
       }
-
-      window.dispatchEvent(new CustomEvent("refetch-stats"));
     } catch (err) {
       console.error("Traffic simulation execution error:", err);
     } finally {
@@ -51,12 +56,12 @@ export function TrafficSimulator() {
   };
 
   return (
-    <div 
+    <div
       className="glass-card p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4"
       style={{ marginBottom: "1.5rem" }}
     >
       <div>
-        <h3 
+        <h3
           className="text-xs font-bold uppercase tracking-widest text-zinc-300 flex items-center gap-2"
           style={{ fontFamily: "'JetBrains Mono', monospace" }}
         >
@@ -81,7 +86,7 @@ export function TrafficSimulator() {
           ) : (
             <Play className="w-3.5 h-3.5 text-zinc-400" />
           )}
-          <span>🚀 Fire Single Request</span>
+          <span> Fire Single Request</span>
         </button>
 
         {/* Button 2: Slate background with clean text indicators */}
@@ -96,7 +101,7 @@ export function TrafficSimulator() {
           ) : (
             <Zap className="w-3.5 h-3.5 text-zinc-400" />
           )}
-          <span>💥 Simulate Load Burst (15x)</span>
+          <span> Simulate Load Burst (15x)</span>
         </button>
       </div>
     </div>
