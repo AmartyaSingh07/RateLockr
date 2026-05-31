@@ -25,14 +25,9 @@ export const app = express();
 // CORS — permit the production Vercel dashboard and local dev servers
 app.use(
   cors({
-    origin: [
-      "https://rate-lockr.vercel.app",
-      "http://localhost:5173",
-      "http://127.0.0.1:5173",
-    ],
+    origin: ["https://rate-lockr.vercel.app", "http://localhost:5173"],
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Request-ID"],
-    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "X-API-Key", "X-Client-ID"]
   })
 );
 
