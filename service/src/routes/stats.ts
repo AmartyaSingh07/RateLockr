@@ -169,29 +169,29 @@ async function buildTimeline(
   }
 }
 
-router.get("/", async (_req: Request, res: Response) => {
+router.get("/", async (req: Request, res: Response) => {
   try {
-    const clientIdQuery = (_req.query["clientId"] || _req.query["client_id"]) as string | undefined;
+    const clientId = (req.query.client_id || req.query.clientId) as string | undefined;
 
     // ── Per-client stats path ────────────────────────────────────────────────
-    if (clientIdQuery) {
+    if (clientId) {
       const [allowVal, denyVal, ruleCount] = await Promise.all([
-        redis.get(`stats:allow:${clientIdQuery}`).catch(() => null),
-        redis.get(`stats:deny:${clientIdQuery}`).catch(() => null),
-        redis.hlen(`rl:rules:${clientIdQuery}`).catch(() => 0),
+        redis.get(`stats:allow:${clientId}`).catch(() => null),
+        redis.get(`stats:deny:${clientId}`).catch(() => null),
+        redis.hlen(`rl:rules:${clientId}`).catch(() => 0),
       ]);
 
       const allowed = parseInt(allowVal ?? "0", 10) || 0;
       const denied  = parseInt(denyVal  ?? "0", 10) || 0;
 
       // Timeline is built from bucket keys — no delta math, no polling artifacts
-      const timeline = await buildTimeline(clientIdQuery);
+      const timeline = await buildTimeline(clientId);
 
       res.status(200).json({
         totalAllowed: allowed,
         totalDenied: denied,
         activeRules: ruleCount,
-        topThrottled: denied > 0 ? [clientIdQuery] : [],
+        topThrottled: denied > 0 ? [clientId] : [],
         timeline,
       });
       return;
