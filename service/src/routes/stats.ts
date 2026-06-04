@@ -74,7 +74,8 @@ async function scanKeys(pattern: string): Promise<string[]> {
 // ---------------------------------------------------------------------------
 // buildTimeline
 // ---------------------------------------------------------------------------
-// Scans the rl:metrics:bucket[:<clientId>]:<unix-second> keys written by the
+// Scans the rl:tsbkt:g:<field>:<sec> (global) or
+// rl:tsbkt:<clientId>:<field>:<sec> (per-client) string keys written by the
 // middleware and assembles them into a 30-point timeline ordered oldest→newest.
 //
 // Always returns exactly 30 data points covering the last 30 seconds.
@@ -85,63 +86,65 @@ async function buildTimeline(
   clientId?: string
 ): Promise<Array<{ timestamp: string; allowed: number; denied: number }>> {
   try {
-    const pattern = clientId
-      ? `rl:metrics:bucket:${clientId}:*`
-      : `rl:metrics:bucket:*`;
+    // Scan patterns for the new string key scheme
+    const allowedPattern = clientId
+      ? `rl:tsbkt:${clientId}:allowed:*`
+      : `rl:tsbkt:g:allowed:*`;
+    const deniedPattern = clientId
+      ? `rl:tsbkt:${clientId}:denied:*`
+      : `rl:tsbkt:g:denied:*`;
 
-    const bucketKeys = await scanKeys(pattern);
+    const [allowedKeys, deniedKeys] = await Promise.all([
+      scanKeys(allowedPattern),
+      scanKeys(deniedPattern),
+    ]);
 
-    // Build a lookup map of sec → { allowed, denied }
+    // Build a map of unix-second → { allowed, denied }
     const bucketMap = new Map<number, { allowed: number; denied: number }>();
 
-    if (bucketKeys.length > 0) {
-      // Extract the unix-second from each key
-      const keysWithTime: Array<{ key: string; sec: number }> = [];
-      for (const key of bucketKeys) {
-        const parts = key.split(":");
-        const sec = parseInt(parts[parts.length - 1]!, 10);
-        // Global keys: rl:metrics:bucket:<sec>          (4 parts)
-        // Per-client:  rl:metrics:bucket:<id>:<sec>     (5+ parts)
-        // When building the global timeline, skip per-client keys
-        if (!clientId && parts.length !== 4) continue;
-        if (!isNaN(sec)) keysWithTime.push({ key, sec });
-      }
+    // Helper: last colon-separated segment is always the unix second
+    const extractSec = (key: string): number => {
+      const parts = key.split(":");
+      return parseInt(parts[parts.length - 1]!, 10);
+    };
 
-      if (keysWithTime.length > 0) {
-        // Batch-read all bucket hashes in one pipeline
-        const pipeline = redis.pipeline();
-        for (const { key } of keysWithTime) {
-          pipeline.hmget(key, "allowed", "denied");
+    // Read all allowed bucket values in one pipeline
+    if (allowedKeys.length > 0) {
+      const pipe = redis.pipeline();
+      for (const key of allowedKeys) pipe.get(key);
+      const results = await pipe.exec();
+
+      allowedKeys.forEach((key, i) => {
+        const sec = extractSec(key);
+        if (!isNaN(sec)) {
+          const val =
+            parseInt(unwrapPipeline<string>(results?.[i]) ?? "0", 10) || 0;
+          const existing = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
+          bucketMap.set(sec, { ...existing, allowed: val });
         }
-        const results = await pipeline.exec();
-
-        keysWithTime.forEach(({ sec }, i) => {
-          const rawHmget = unwrapPipeline<
-            string[] | Record<string, string>
-          >(results?.[i]);
-
-          let allowed = 0;
-          let denied = 0;
-
-          if (rawHmget) {
-            if (Array.isArray(rawHmget)) {
-              allowed = parseInt(rawHmget[0] ?? "0", 10) || 0;
-              denied  = parseInt(rawHmget[1] ?? "0", 10) || 0;
-            } else if (typeof rawHmget === "object") {
-              const obj = rawHmget as Record<string, string>;
-              allowed = parseInt(obj["allowed"] ?? "0", 10) || 0;
-              denied  = parseInt(obj["denied"]  ?? "0", 10) || 0;
-            }
-          }
-
-          bucketMap.set(sec, { allowed, denied });
-        });
-      }
+      });
     }
 
-    // Always return a full 30-second window, oldest → newest.
-    // Seconds with no traffic are padded with zeros so Recharts
-    // always has enough points to draw visible line segments.
+    // Read all denied bucket values in one pipeline
+    if (deniedKeys.length > 0) {
+      const pipe = redis.pipeline();
+      for (const key of deniedKeys) pipe.get(key);
+      const results = await pipe.exec();
+
+      deniedKeys.forEach((key, i) => {
+        const sec = extractSec(key);
+        if (!isNaN(sec)) {
+          const val =
+            parseInt(unwrapPipeline<string>(results?.[i]) ?? "0", 10) || 0;
+          const existing = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
+          bucketMap.set(sec, { ...existing, denied: val });
+        }
+      });
+    }
+
+    // Always return a full 30-second padded window, oldest → newest.
+    // Seconds with no traffic are zero so Recharts has enough points
+    // to draw visible line segments across the full chart width.
     const nowSec = Math.floor(Date.now() / 1000);
     const timeline: Array<{
       timestamp: string;
