@@ -117,8 +117,7 @@ async function buildTimeline(
       allowedKeys.forEach((key, i) => {
         const sec = extractSec(key);
         if (!isNaN(sec)) {
-          const val =
-            parseInt(unwrapPipeline<string>(results?.[i]) ?? "0", 10) || 0;
+          const val = parseInt((results?.[i] as string) ?? "0", 10) || 0;
           const existing = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
           bucketMap.set(sec, { ...existing, allowed: val });
         }
@@ -134,8 +133,7 @@ async function buildTimeline(
       deniedKeys.forEach((key, i) => {
         const sec = extractSec(key);
         if (!isNaN(sec)) {
-          const val =
-            parseInt(unwrapPipeline<string>(results?.[i]) ?? "0", 10) || 0;
+          const val = parseInt((results?.[i] as string) ?? "0", 10) || 0;
           const existing = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
           bucketMap.set(sec, { ...existing, denied: val });
         }
