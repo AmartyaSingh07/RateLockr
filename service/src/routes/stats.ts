@@ -86,86 +86,50 @@ async function buildTimeline(
   clientId?: string
 ): Promise<Array<{ timestamp: string; allowed: number; denied: number }>> {
   try {
-    // Scan patterns for the new string key scheme
-    const allowedPattern = clientId
-      ? `rl:tsbkt:${clientId}:allowed:*`
-      : `rl:tsbkt:g:allowed:*`;
-    const deniedPattern = clientId
-      ? `rl:tsbkt:${clientId}:denied:*`
-      : `rl:tsbkt:g:denied:*`;
-
-    const [allowedKeys, deniedKeys] = await Promise.all([
-      scanKeys(allowedPattern),
-      scanKeys(deniedPattern),
-    ]);
-
-    // Build a map of unix-second → { allowed, denied }
-    const bucketMap = new Map<number, { allowed: number; denied: number }>();
-
-    // Helper: last colon-separated segment is always the unix second
-    const extractSec = (key: string): number => {
-      const parts = key.split(":");
-      return parseInt(parts[parts.length - 1]!, 10);
-    };
-
-    // Read all allowed bucket values in one pipeline
-    if (allowedKeys.length > 0) {
-      const pipe = redis.pipeline();
-      for (const key of allowedKeys) pipe.get(key);
-      const results = await pipe.exec();
-
-      allowedKeys.forEach((key, i) => {
-        const sec = extractSec(key);
-        if (!isNaN(sec)) {
-          const val = parseInt((results?.[i] as string) ?? "0", 10) || 0;
-          const existing = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
-          bucketMap.set(sec, { ...existing, allowed: val });
-        }
-      });
-    }
-
-    // Read all denied bucket values in one pipeline
-    if (deniedKeys.length > 0) {
-      const pipe = redis.pipeline();
-      for (const key of deniedKeys) pipe.get(key);
-      const results = await pipe.exec();
-
-      deniedKeys.forEach((key, i) => {
-        const sec = extractSec(key);
-        if (!isNaN(sec)) {
-          const val = parseInt((results?.[i] as string) ?? "0", 10) || 0;
-          const existing = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
-          bucketMap.set(sec, { ...existing, denied: val });
-        }
-      });
-    }
-
-    // Always return a full 30-second padded window, oldest → newest.
-    // Seconds with no traffic are zero so Recharts has enough points
-    // to draw visible line segments across the full chart width.
     const nowSec = Math.floor(Date.now() / 1000);
-    const timeline: Array<{
-      timestamp: string;
-      allowed: number;
-      denied: number;
-    }> = [];
+    const timeline: Array<{ timestamp: string; allowed: number; denied: number }> = [];
+    
+    const pipe = redis.pipeline();
+    const targetSeconds: number[] = [];
 
+    // Predict and schedule exact string key reads for the last 30 seconds
     for (let i = 29; i >= 0; i--) {
       const sec = nowSec - i;
-      const bucket = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
+      targetSeconds.push(sec);
+
+      const allowedKey = clientId
+        ? `rl:tsbkt:${clientId}:allowed:${sec}`
+        : `rl:tsbkt:g:allowed:${sec}`;
+      const deniedKey = clientId
+        ? `rl:tsbkt:${clientId}:denied:${sec}`
+        : `rl:tsbkt:g:denied:${sec}`;
+
+      pipe.get(allowedKey);
+      pipe.get(deniedKey);
+    }
+
+    // Execute the single fast batch lookup
+    const results = await pipe.exec();
+
+    // Map raw primitive results directly into our padded time structures
+    for (let i = 0; i < 30; i++) {
+      const sec = targetSeconds[i]!;
+      const allowedVal = parseInt((results?.[i * 2] as string) ?? "0", 10) || 0;
+      const deniedVal = parseInt((results?.[i * 2 + 1] as string) ?? "0", 10) || 0;
+
       timeline.push({
         timestamp: new Date(sec * 1000).toLocaleTimeString("en-US", {
           hour12: false,
           timeZone: "UTC",
         }),
-        allowed: bucket.allowed,
-        denied: bucket.denied,
+        allowed: allowedVal,
+        denied: deniedVal,
       });
     }
 
     return timeline;
   } catch (err) {
-    logger.error({ err, clientId }, "Failed to build timeline from bucket keys");
+    logger.error({ err, clientId }, "Failed to build deterministic timeline from explicit secondary indices");
     return [];
   }
 }
