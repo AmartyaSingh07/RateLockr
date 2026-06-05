@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import {
   LineChart,
   Line,
@@ -8,6 +8,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import { useStats } from "../hooks/useStats";
 import type { Stats } from "../hooks/useStats";
 
 // =============================================================================
@@ -34,14 +35,30 @@ interface AllowDenyChartProps {
 }
 
 export function AllowDenyChart({ stats, clientId, onClearFilter }: AllowDenyChartProps) {
+  const { data, refetch } = useStats(clientId);
+
+  useEffect(() => {
+    const handleInstantRefetch = () => {
+      console.log("Simulator signal detected! Redrawing line curves instantly...");
+      refetch();
+    };
+
+    window.addEventListener("refetch-stats", handleInstantRefetch);
+    return () => {
+      window.removeEventListener("refetch-stats", handleInstantRefetch);
+    };
+  }, [refetch]);
+
+  const activeStats = data || stats;
+
   // Map the timeline directly from server response
   const dataPoints: ChartDataPoint[] = useMemo(() => {
-    return (stats?.timeline ?? []).map((point) => ({
+    return (activeStats?.timeline ?? []).map((point) => ({
       time: point.timestamp,
       allowed: point.allowed,
       denied: point.denied,
     }));
-  }, [stats?.timeline]);
+  }, [activeStats?.timeline]);
 
   return (
     <div

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import apiClient from "../api/client";
 
 // =============================================================================
@@ -22,27 +22,21 @@ export function useStats(clientId?: string | null) {
   const [isLoading, setIsLoading] = useState(true);
   const [isError, setIsError] = useState(false);
 
+  const fetchStats = useCallback(async () => {
+    try {
+      const url = clientId ? `/api/stats?clientId=${encodeURIComponent(clientId)}` : "/api/stats";
+      const { data: resData } = await apiClient.get<Stats>(url);
+      setData(resData);
+      setIsLoading(false);
+      setIsError(false);
+    } catch (err) {
+      console.error("Failed to fetch stats:", err);
+      setIsError(true);
+      setIsLoading(false);
+    }
+  }, [clientId]);
+
   useEffect(() => {
-    let active = true;
-
-    const fetchStats = async () => {
-      try {
-        const url = clientId ? `/api/stats?clientId=${encodeURIComponent(clientId)}` : "/api/stats";
-        const { data: resData } = await apiClient.get<Stats>(url);
-        if (active) {
-          setData(resData);
-          setIsLoading(false);
-          setIsError(false);
-        }
-      } catch (err) {
-        console.error("Failed to fetch stats:", err);
-        if (active) {
-          setIsError(true);
-          setIsLoading(false);
-        }
-      }
-    };
-
     fetchStats();
 
     // Poll every 2 seconds
@@ -55,11 +49,10 @@ export function useStats(clientId?: string | null) {
     window.addEventListener("refetch-stats", handleRefetch);
 
     return () => {
-      active = false;
       window.removeEventListener("refetch-stats", handleRefetch);
       clearInterval(intervalId);
     };
-  }, [clientId]);
+  }, [fetchStats]);
 
-  return { data, isLoading, isError };
+  return { data, isLoading, isError, refetch: fetchStats };
 }

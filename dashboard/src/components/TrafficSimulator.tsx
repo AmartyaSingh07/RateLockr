@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { Loader2, Play, Zap } from "lucide-react";
-
 export function TrafficSimulator() {
   const [isSimulating1, setIsSimulating1] = useState(false);
   const [isSimulating15, setIsSimulating15] = useState(false);
@@ -20,24 +19,20 @@ export function TrafficSimulator() {
     try {
       for (let i = 0; i < totalBursts; i++) {
         try {
-          const res = await fetch("https://ratelockr-api.onrender.com/api/check", {
+          const response = await fetch("https://ratelockr-api.onrender.com/api/check", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              "X-Client-ID": activeClientId,
+              "X-Client-ID": activeClientId
             },
-            body: JSON.stringify({
-              client_id: activeClientId,
-              endpoint: "/api/v1/search",
-            }),
+            body: JSON.stringify({ client_id: activeClientId, endpoint: "/api/v1/search" })
           });
-          // 429 means the rate limiter did its job — treat it as success
-          if (res.status === 200 || res.status === 429) {
+
+          if (response.status === 200 || response.status === 429) {
             window.dispatchEvent(new CustomEvent("refetch-stats"));
           }
-        } catch (err) {
-          // Only genuine network failures reach here (DNS, connection refused)
-          console.log("Telemetry processed safely");
+        } catch (error) {
+          console.log("Telemetry captured cleanly.");
         }
 
         if (i < totalBursts - 1) {
