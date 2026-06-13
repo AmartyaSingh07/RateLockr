@@ -1,19 +1,9 @@
 {
-  "version": 2,
-  "builds": [
-    {
-      "src": "api/[...all].ts",
-      "use": "@vercel/node",
-      "config": {
-        "zeroConfig": false,
-        "includeFiles": "src/scripts/**/*.lua"
-      }
-    }
-  ],
   "routes": [
     {
       "src": "/(.*)",
-      "dest": "/api/[...all].ts"
+      "dest": "api/[...all].ts"
     }
   ]
 }
+

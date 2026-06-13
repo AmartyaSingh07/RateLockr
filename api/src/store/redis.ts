@@ -2,7 +2,6 @@ import IORedis from "ioredis";
 import { Redis as UpstashRedis } from "@upstash/redis";
 import path from "path";
 import fs from "fs/promises";
-import { existsSync, readdirSync } from "fs";
 import { logger } from "../lib/logger";
 
 // =============================================================================
@@ -397,84 +396,49 @@ redis.on("reconnecting", (ms: number) => {
 // Lua Script Boot-loader
 // =============================================================================
 
-function locateScriptsDir(): string {
-  const candidates = [
-    // Standard relative structure for dev/production (relative to compiled/transpiled store directory)
-    path.join(__dirname, "..", "scripts"),
-    // Relative to process.cwd() when run from the root of api
-    path.join(process.cwd(), "src", "scripts"),
-    // Relative to process.cwd() when run from build folder root
-    path.join(process.cwd(), "dist", "scripts"),
-    // If run from dashboard/root directory
-    path.join(process.cwd(), "api", "src", "scripts"),
-  ];
-
-  for (const candidate of candidates) {
-    try {
-      if (existsSync(candidate)) {
-        const files = readdirSync(candidate);
-        if (files.some((f) => f.endsWith(".lua"))) {
-          logger.info({ foundPath: candidate }, "Dynamically located Lua scripts directory");
-          return candidate;
-        }
-      }
-    } catch {
-      // Continue searching
-    }
-  }
-
-  const fallback = path.join(__dirname, "..", "scripts");
-  logger.warn({ fallback }, "Could not dynamically locate a scripts directory with Lua files. Falling back.");
-  return fallback;
-}
-
-const SCRIPTS_DIR = locateScriptsDir();
-
-function parseNumberOfKeys(content: string): number {
-  const match = content.match(/^--\s*KEYS:\s*(\d+)/m);
-  return match ? parseInt(match[1]!, 10) : 1;
-}
-
 async function bootstrapLuaScripts(): Promise<string[]> {
   const registered: string[] = [];
 
   try {
-    const entries = await fs.readdir(SCRIPTS_DIR);
-    const luaFiles = entries.filter((f) => f.endsWith(".lua")).sort();
+    const scripts = [
+      {
+        name: "fixedWindow",
+        numberOfKeys: 1,
+        filePath: path.join(__dirname, "..", "scripts", "fixedWindow.lua"),
+      },
+      {
+        name: "slidingWindow",
+        numberOfKeys: 1,
+        filePath: path.join(__dirname, "..", "scripts", "slidingWindow.lua"),
+      },
+      {
+        name: "tokenBucket",
+        numberOfKeys: 1,
+        filePath: path.join(__dirname, "..", "scripts", "tokenBucket.lua"),
+      },
+    ];
 
-    if (luaFiles.length === 0) {
-      logger.warn({ dir: SCRIPTS_DIR }, "No .lua scripts found in scripts directory");
-      return registered;
-    }
-
-    for (const file of luaFiles) {
-      const filePath = path.join(SCRIPTS_DIR, file);
-      const content = await fs.readFile(filePath, "utf-8");
-      const commandName = path.basename(file, ".lua");
-      const numberOfKeys = parseNumberOfKeys(content);
-
-      redis.defineCommand(commandName, {
-        numberOfKeys,
+    for (const script of scripts) {
+      const content = await fs.readFile(script.filePath, "utf-8");
+      redis.defineCommand(script.name, {
+        numberOfKeys: script.numberOfKeys,
         lua: content,
       });
-
-      registered.push(commandName);
+      registered.push(script.name);
       logger.debug(
-        { command: commandName, numberOfKeys, file },
-        "Registered Lua script"
+        { command: script.name, numberOfKeys: script.numberOfKeys, filePath: script.filePath },
+        "Registered Lua script statically"
       );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error(
-      { err: message, dir: SCRIPTS_DIR },
-      "Failed to bootstrap Lua scripts"
-    );
+    logger.error({ err: message }, "Failed to bootstrap Lua scripts statically");
     throw err;
   }
 
   return registered;
 }
+
 
 // =============================================================================
 // Background Metric Eviction Routine
