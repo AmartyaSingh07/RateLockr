@@ -169,7 +169,7 @@ catch (err) {
 
 ## Redis Key Schema
 
-All keys are namespaced under the `rl:` prefix to isolate rate-limiting state from other Redis workloads. Key builders are centralized in [`keys.ts`](service/src/lib/keys.ts).
+All keys are namespaced under the `rl:` prefix to isolate rate-limiting state from other Redis workloads. Key builders are centralized in [`keys.ts`](api/src/lib/keys.ts).
 
 | Domain | Pattern | Type | TTL | Purpose |
 |:--|:--|:--|:--|:--|
@@ -444,11 +444,11 @@ This starts Redis 7 on `localhost:6379` with password `dev_password_123`.
 **3. Configure service environment:**
 
 ```bash
-cd service
+cd api
 cp .env.example .env   # If .env.example exists, otherwise create:
 ```
 
-Create `service/.env`:
+Create `api/.env`:
 ```env
 PORT=3000
 REDIS_HOST=localhost
@@ -462,7 +462,7 @@ ADMIN_API_KEY=your_admin_key_here
 **4. Start the API service:**
 
 ```bash
-cd service
+cd api
 npm install
 npm run dev
 ```
@@ -488,7 +488,7 @@ The dashboard will be available at `http://localhost:5173`.
 ### Running Tests
 
 ```bash
-cd service
+cd api
 npm test        # Jest — 35 unit/integration tests
 npm run lint    # TypeScript strict-mode type check (tsc --noEmit)
 ```
@@ -520,7 +520,7 @@ services:
     name: ratelockr-api
     runtime: node
     plan: free
-    rootDirectory: service
+    rootDirectory: api
     buildCommand: "npm install --include=dev && npm run build"
     startCommand: "npm start"
 ```

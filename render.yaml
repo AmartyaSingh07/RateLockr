@@ -3,7 +3,7 @@ services:
     name: ratelockr-api
     runtime: node
     plan: free
-    rootDirectory: service
+    rootDirectory: api
     buildCommand: "npm install --include=dev && npm run build"
     startCommand: "npm start"
     envVars:
