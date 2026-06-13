@@ -2,6 +2,7 @@ import IORedis from "ioredis";
 import { Redis as UpstashRedis } from "@upstash/redis";
 import path from "path";
 import fs from "fs/promises";
+import { existsSync, readdirSync } from "fs";
 import { logger } from "../lib/logger";
 
 // =============================================================================
@@ -396,7 +397,38 @@ redis.on("reconnecting", (ms: number) => {
 // Lua Script Boot-loader
 // =============================================================================
 
-const SCRIPTS_DIR = path.join(__dirname, "..", "scripts");
+function locateScriptsDir(): string {
+  const candidates = [
+    // Standard relative structure for dev/production (relative to compiled/transpiled store directory)
+    path.join(__dirname, "..", "scripts"),
+    // Relative to process.cwd() when run from the root of api
+    path.join(process.cwd(), "src", "scripts"),
+    // Relative to process.cwd() when run from build folder root
+    path.join(process.cwd(), "dist", "scripts"),
+    // If run from dashboard/root directory
+    path.join(process.cwd(), "api", "src", "scripts"),
+  ];
+
+  for (const candidate of candidates) {
+    try {
+      if (existsSync(candidate)) {
+        const files = readdirSync(candidate);
+        if (files.some((f) => f.endsWith(".lua"))) {
+          logger.info({ foundPath: candidate }, "Dynamically located Lua scripts directory");
+          return candidate;
+        }
+      }
+    } catch {
+      // Continue searching
+    }
+  }
+
+  const fallback = path.join(__dirname, "..", "scripts");
+  logger.warn({ fallback }, "Could not dynamically locate a scripts directory with Lua files. Falling back.");
+  return fallback;
+}
+
+const SCRIPTS_DIR = locateScriptsDir();
 
 function parseNumberOfKeys(content: string): number {
   const match = content.match(/^--\s*KEYS:\s*(\d+)/m);
@@ -576,6 +608,11 @@ export async function evictExpiredOrStaleKeys(): Promise<number> {
 }
 
 export function startEvictionRoutine(intervalMs = 60_000): void {
+  if (process.env["VERCEL"]) {
+    logger.info("Running on Vercel (Serverless) — background key eviction routine is disabled.");
+    return;
+  }
+
   if (evictionIntervalId) {
     clearInterval(evictionIntervalId);
   }

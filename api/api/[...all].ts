@@ -2,14 +2,13 @@ import serverless from "serverless-http";
 import { app } from "../src/app";
 import { initRedis } from "../src/store/redis";
 
-let initialized = false;
+let initPromise: Promise<void> | null = null;
 
-async function initializeOnce(): Promise<void> {
-  if (initialized) {
-    return;
+function initializeOnce(): Promise<void> {
+  if (!initPromise) {
+    initPromise = initRedis();
   }
-  initialized = true;
-  await initRedis();
+  return initPromise;
 }
 
 const handler = serverless(app);
