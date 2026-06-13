@@ -27,17 +27,18 @@ const PATH_CLIENT_MAPPING = {
 // recordRequestEvent
 // ---------------------------------------------------------------------------
 // Called after every rate-limit decision. Atomically increments the global
-// running counters AND pushes a 1-second time-bucket snapshot into the
-// timeline list so the stats reader always has fresh, accurate data.
+// running counters AND pushes a 1-second time-bucket snapshot so the stats
+// reader always has fresh, accurate data.
 //
 // Layout in Redis:
-//   stats:allow:<clientId>        — integer, lifetime allowed count
-//   stats:deny:<clientId>         — integer, lifetime denied count
-//   rl:metrics:timeline           — list<JSON>, global timeline (max 30 items)
-//   rl:metrics:timeline:<clientId>— list<JSON>, per-client timeline (max 30)
+//   stats:allow:<clientId>                  — integer, lifetime allowed count
+//   stats:deny:<clientId>                   — integer, lifetime denied count
+//   rl:tsbkt:g:<field>:<sec>                — string, global bucket per second
+//   rl:tsbkt:<clientId>:<field>:<sec>       — string, per-client bucket per second
 //
-// Each timeline entry: { timestamp: number (unix seconds), allowed: number, denied: number }
-// "allowed" and "denied" represent requests in THIS one-second bucket only.
+// Uses separate string keys with incr instead of hash fields with hincrby,
+// because incr is confirmed working on the Upstash Redis SDK while hincrby
+// silently fails inside pipelines.
 // ---------------------------------------------------------------------------
 async function recordRequestEvent(clientId, allowed) {
     // ── 1. Increment the correct lifetime counter ──────────────────────────
@@ -48,31 +49,29 @@ async function recordRequestEvent(clientId, allowed) {
     catch (err) {
         logger_1.logger.error({ err, clientId, allowed }, "Failed to increment lifetime counter");
     }
-    // ── 2. Write a time-bucketed snapshot into the timeline lists ──────────
-    // We use a 1-second bucket key. All requests within the same UTC second
-    // accumulate into the same bucket. This prevents double-counting and gives
-    // the chart meaningful per-second resolution without flooding Redis.
+    // ── 2. Write a time-bucketed snapshot using string keys ────────────────
     const nowSec = Math.floor(Date.now() / 1000);
-    const bucketKeyGlobal = `rl:metrics:bucket:${nowSec}`;
-    const bucketKeyClient = `rl:metrics:bucket:${clientId}:${nowSec}`;
+    const field = allowed ? "allowed" : "denied";
+    // Use separate string keys instead of hash fields.
+    // incr on a string key is confirmed working on this Redis instance.
+    // Key scheme:
+    //   Global:     rl:tsbkt:g:<field>:<sec>
+    //   Per-client: rl:tsbkt:<clientId>:<field>:<sec>
+    const globalKey = `rl:tsbkt:g:${field}:${nowSec}`;
+    const clientKey = `rl:tsbkt:${clientId}:${field}:${nowSec}`;
     try {
-        const pipeline = redis_1.redis.pipeline();
-        // Increment this second's bucket for global and per-client views
-        if (allowed) {
-            pipeline.hincrby(bucketKeyGlobal, "allowed", 1);
-            pipeline.hincrby(bucketKeyClient, "allowed", 1);
-        }
-        else {
-            pipeline.hincrby(bucketKeyGlobal, "denied", 1);
-            pipeline.hincrby(bucketKeyClient, "denied", 1);
-        }
-        // TTL: keep bucket keys for 2 minutes (well beyond the 30-point window)
-        pipeline.expire(bucketKeyGlobal, 120);
-        pipeline.expire(bucketKeyClient, 120);
-        await pipeline.exec();
+        const pipe = redis_1.redis.pipeline();
+        pipe.incr(globalKey);
+        pipe.incr(clientKey);
+        pipe.expire(globalKey, 120);
+        pipe.expire(clientKey, 120);
+        await pipe.exec();
     }
     catch (err) {
-        logger_1.logger.error({ err, clientId, nowSec }, "Failed to write time-bucket snapshot");
+        // Fallback to direct writes if pipeline fails
+        logger_1.logger.error({ err, clientId, nowSec }, "Pipeline bucket write failed, using direct writes");
+        redis_1.redis.incr(globalKey).then(() => redis_1.redis.expire(globalKey, 120)).catch(() => { });
+        redis_1.redis.incr(clientKey).then(() => redis_1.redis.expire(clientKey, 120)).catch(() => { });
     }
 }
 const rateLimiterMiddleware = async (req, res, next) => {

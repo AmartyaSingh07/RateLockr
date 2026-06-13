@@ -64,7 +64,8 @@ async function scanKeys(pattern) {
 // ---------------------------------------------------------------------------
 // buildTimeline
 // ---------------------------------------------------------------------------
-// Scans the rl:metrics:bucket[:<clientId>]:<unix-second> keys written by the
+// Scans the rl:tsbkt:g:<field>:<sec> (global) or
+// rl:tsbkt:<clientId>:<field>:<sec> (per-client) string keys written by the
 // middleware and assembles them into a 30-point timeline ordered oldest→newest.
 //
 // Always returns exactly 30 data points covering the last 30 seconds.
@@ -73,73 +74,43 @@ async function scanKeys(pattern) {
 // ---------------------------------------------------------------------------
 async function buildTimeline(clientId) {
     try {
-        const pattern = clientId
-            ? `rl:metrics:bucket:${clientId}:*`
-            : `rl:metrics:bucket:*`;
-        const bucketKeys = await scanKeys(pattern);
-        // Build a lookup map of sec → { allowed, denied }
-        const bucketMap = new Map();
-        if (bucketKeys.length > 0) {
-            // Extract the unix-second from each key
-            const keysWithTime = [];
-            for (const key of bucketKeys) {
-                const parts = key.split(":");
-                const sec = parseInt(parts[parts.length - 1], 10);
-                // Global keys: rl:metrics:bucket:<sec>          (4 parts)
-                // Per-client:  rl:metrics:bucket:<id>:<sec>     (5+ parts)
-                // When building the global timeline, skip per-client keys
-                if (!clientId && parts.length !== 4)
-                    continue;
-                if (!isNaN(sec))
-                    keysWithTime.push({ key, sec });
-            }
-            if (keysWithTime.length > 0) {
-                // Batch-read all bucket hashes in one pipeline
-                const pipeline = redis_1.redis.pipeline();
-                for (const { key } of keysWithTime) {
-                    pipeline.hmget(key, "allowed", "denied");
-                }
-                const results = await pipeline.exec();
-                keysWithTime.forEach(({ sec }, i) => {
-                    const rawHmget = unwrapPipeline(results?.[i]);
-                    let allowed = 0;
-                    let denied = 0;
-                    if (rawHmget) {
-                        if (Array.isArray(rawHmget)) {
-                            allowed = parseInt(rawHmget[0] ?? "0", 10) || 0;
-                            denied = parseInt(rawHmget[1] ?? "0", 10) || 0;
-                        }
-                        else if (typeof rawHmget === "object") {
-                            const obj = rawHmget;
-                            allowed = parseInt(obj["allowed"] ?? "0", 10) || 0;
-                            denied = parseInt(obj["denied"] ?? "0", 10) || 0;
-                        }
-                    }
-                    bucketMap.set(sec, { allowed, denied });
-                });
-            }
-        }
-        // Always return a full 30-second window, oldest → newest.
-        // Seconds with no traffic are padded with zeros so Recharts
-        // always has enough points to draw visible line segments.
         const nowSec = Math.floor(Date.now() / 1000);
         const timeline = [];
+        const pipe = redis_1.redis.pipeline();
+        const targetSeconds = [];
+        // Predict and schedule exact string key reads for the last 30 seconds
         for (let i = 29; i >= 0; i--) {
             const sec = nowSec - i;
-            const bucket = bucketMap.get(sec) ?? { allowed: 0, denied: 0 };
+            targetSeconds.push(sec);
+            const allowedKey = clientId
+                ? `rl:tsbkt:${clientId}:allowed:${sec}`
+                : `rl:tsbkt:g:allowed:${sec}`;
+            const deniedKey = clientId
+                ? `rl:tsbkt:${clientId}:denied:${sec}`
+                : `rl:tsbkt:g:denied:${sec}`;
+            pipe.get(allowedKey);
+            pipe.get(deniedKey);
+        }
+        // Execute the single fast batch lookup
+        const results = await pipe.exec();
+        // Map raw primitive results directly into our padded time structures
+        for (let i = 0; i < 30; i++) {
+            const sec = targetSeconds[i];
+            const allowedVal = parseInt(results?.[i * 2] ?? "0", 10) || 0;
+            const deniedVal = parseInt(results?.[i * 2 + 1] ?? "0", 10) || 0;
             timeline.push({
                 timestamp: new Date(sec * 1000).toLocaleTimeString("en-US", {
                     hour12: false,
                     timeZone: "UTC",
                 }),
-                allowed: bucket.allowed,
-                denied: bucket.denied,
+                allowed: allowedVal,
+                denied: deniedVal,
             });
         }
         return timeline;
     }
     catch (err) {
-        logger_1.logger.error({ err, clientId }, "Failed to build timeline from bucket keys");
+        logger_1.logger.error({ err, clientId }, "Failed to build deterministic timeline from explicit secondary indices");
         return [];
     }
 }
