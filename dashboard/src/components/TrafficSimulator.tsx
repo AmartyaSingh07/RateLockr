@@ -19,7 +19,7 @@ export function TrafficSimulator() {
     try {
       for (let i = 0; i < totalBursts; i++) {
         try {
-          const response = await fetch("https://ratelockr-api.onrender.com/api/check", {
+          const response = await fetch("https://rate-lockr-5z23.vercel.app/api/check", {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
