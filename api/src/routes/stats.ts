@@ -114,8 +114,8 @@ async function buildTimeline(
     // Map raw primitive results directly into our padded time structures
     for (let i = 0; i < 30; i++) {
       const sec = targetSeconds[i]!;
-      const allowedVal = parseInt((results?.[i * 2] as string) ?? "0", 10) || 0;
-      const deniedVal = parseInt((results?.[i * 2 + 1] as string) ?? "0", 10) || 0;
+      const allowedVal = parseInt(unwrapPipeline<string>(results?.[i * 2]) ?? "0", 10) || 0;
+      const deniedVal = parseInt(unwrapPipeline<string>(results?.[i * 2 + 1]) ?? "0", 10) || 0;
 
       timeline.push({
         timestamp: new Date(sec * 1000).toLocaleTimeString("en-US", {
