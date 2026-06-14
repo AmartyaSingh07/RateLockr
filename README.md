@@ -512,7 +512,7 @@ docker compose -f docker-compose.dev.yml up --build
 
 ### Backend — Render
 
-The service deploys to [Render](https://render.com/) using the `render.yaml` blueprint:
+The service can be deployed to [Render](https://render.com/) using the `render.yaml` blueprint:
 
 ```yaml
 services:
@@ -533,6 +533,18 @@ Required environment variables on Render:
 | `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST auth token |
 | `ADMIN_API_KEY` | Dashboard authentication key |
 | `NODE_ENV` | `production` |
+
+### Backend — Vercel
+
+The service can also be deployed to [Vercel](https://vercel.com/) as Serverless Functions:
+
+1. Set up a new project on Vercel and link the repository.
+2. In Vercel Project Settings, set the **Root Directory** to `api`.
+3. Vercel will automatically read `api/vercel.json`, compile the catch-all handler `api/api/[...all].ts`, and route all incoming API requests to the Express application.
+4. Configure the following environment variables in the Vercel dashboard:
+   - `UPSTASH_REDIS_REST_URL`: Upstash serverless Redis REST endpoint.
+   - `UPSTASH_REDIS_REST_TOKEN`: Upstash serverless Redis auth token.
+   - `ADMIN_API_KEY`: Secret key for authenticating admin dashboard operations.
 
 ### Frontend — Vercel
 
