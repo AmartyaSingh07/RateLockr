@@ -1,8 +1,7 @@
 import IORedis from "ioredis";
 import { Redis as UpstashRedis } from "@upstash/redis";
-import path from "path";
-import fs from "fs/promises";
 import { logger } from "../lib/logger";
+import { luaScripts } from "./luaScripts";
 
 // =============================================================================
 // Connection URL Resolution
@@ -400,39 +399,24 @@ async function bootstrapLuaScripts(): Promise<string[]> {
   const registered: string[] = [];
 
   try {
-    const scripts = [
-      {
-        name: "fixedWindow",
-        numberOfKeys: 1,
-        filePath: path.join(__dirname, "..", "scripts", "fixedWindow.lua"),
-      },
-      {
-        name: "slidingWindow",
-        numberOfKeys: 1,
-        filePath: path.join(__dirname, "..", "scripts", "slidingWindow.lua"),
-      },
-      {
-        name: "tokenBucket",
-        numberOfKeys: 1,
-        filePath: path.join(__dirname, "..", "scripts", "tokenBucket.lua"),
-      },
-    ];
-
-    for (const script of scripts) {
-      const content = await fs.readFile(script.filePath, "utf-8");
-      redis.defineCommand(script.name, {
-        numberOfKeys: script.numberOfKeys,
-        lua: content,
+    for (const [commandName, def] of Object.entries(luaScripts)) {
+      redis.defineCommand(commandName, {
+        numberOfKeys: def.numberOfKeys,
+        lua: def.lua,
       });
-      registered.push(script.name);
+
+      registered.push(commandName);
       logger.debug(
-        { command: script.name, numberOfKeys: script.numberOfKeys, filePath: script.filePath },
-        "Registered Lua script statically"
+        { command: commandName, numberOfKeys: def.numberOfKeys },
+        "Registered Lua script"
       );
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    logger.error({ err: message }, "Failed to bootstrap Lua scripts statically");
+    logger.error(
+      { err: message },
+      "Failed to bootstrap Lua scripts"
+    );
     throw err;
   }
 
@@ -600,21 +584,40 @@ export function stopEvictionRoutine(): void {
 // =============================================================================
 
 export async function initRedis(): Promise<void> {
+  // Always bootstrap Lua scripts client-side first so they are defined
+  // immediately, regardless of whether connection succeeds now or later.
   try {
-    await redis.connect();
-
-    // Eagerly validate connectivity — crash loud at boot if Redis is
-    // unreachable or credentials are wrong, instead of discovering it
-    // silently on the first request.
-    await redis.ping();
-    logger.info("Redis PING succeeded — connection validated");
-
     const scripts = await bootstrapLuaScripts();
     logger.info(
-      { scriptsRegistered: scripts.length, scripts },
-      "✅ Redis connected and all Lua scripts boot-loaded successfully"
+      { scriptsRegistered: scripts.length },
+      "Lua scripts registered client-side"
     );
-    startEvictionRoutine();
+  } catch (err) {
+    logger.error({ err }, "Failed client-side Lua scripts registration");
+  }
+
+  try {
+    // Race initial connection and ping validation against a 2.5-second timeout.
+    // This prevents blocking serverless function boots on unreachable networks.
+    const connectPromise = async () => {
+      await redis.connect();
+      await redis.ping();
+    };
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("Redis connection validation timed out (2.5s)")), 2500)
+    );
+
+    await Promise.race([connectPromise(), timeoutPromise]);
+    logger.info("Redis PING succeeded — connection validated");
+
+    // Only run the background eviction interval in non-serverless environments.
+    // Serverless platforms like Vercel rely on the cron endpoint instead.
+    if (!process.env["VERCEL"]) {
+      startEvictionRoutine();
+    } else {
+      logger.info("Vercel environment detected: background eviction interval skipped (cron handles this)");
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     logger.error(

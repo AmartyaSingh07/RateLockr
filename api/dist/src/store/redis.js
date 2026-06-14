@@ -11,9 +11,8 @@ exports.initRedis = initRedis;
 exports.shutdownRedis = shutdownRedis;
 const ioredis_1 = __importDefault(require("ioredis"));
 const redis_1 = require("@upstash/redis");
-const path_1 = __importDefault(require("path"));
-const promises_1 = __importDefault(require("fs/promises"));
 const logger_1 = require("../lib/logger");
+const luaScripts_1 = require("./luaScripts");
 // =============================================================================
 // Connection URL Resolution
 // =============================================================================
@@ -301,36 +300,18 @@ exports.redis.on("reconnecting", (ms) => {
 async function bootstrapLuaScripts() {
     const registered = [];
     try {
-        const scripts = [
-            {
-                name: "fixedWindow",
-                numberOfKeys: 1,
-                filePath: path_1.default.join(__dirname, "..", "scripts", "fixedWindow.lua"),
-            },
-            {
-                name: "slidingWindow",
-                numberOfKeys: 1,
-                filePath: path_1.default.join(__dirname, "..", "scripts", "slidingWindow.lua"),
-            },
-            {
-                name: "tokenBucket",
-                numberOfKeys: 1,
-                filePath: path_1.default.join(__dirname, "..", "scripts", "tokenBucket.lua"),
-            },
-        ];
-        for (const script of scripts) {
-            const content = await promises_1.default.readFile(script.filePath, "utf-8");
-            exports.redis.defineCommand(script.name, {
-                numberOfKeys: script.numberOfKeys,
-                lua: content,
+        for (const [commandName, def] of Object.entries(luaScripts_1.luaScripts)) {
+            exports.redis.defineCommand(commandName, {
+                numberOfKeys: def.numberOfKeys,
+                lua: def.lua,
             });
-            registered.push(script.name);
-            logger_1.logger.debug({ command: script.name, numberOfKeys: script.numberOfKeys, filePath: script.filePath }, "Registered Lua script statically");
+            registered.push(commandName);
+            logger_1.logger.debug({ command: commandName, numberOfKeys: def.numberOfKeys }, "Registered Lua script");
         }
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
-        logger_1.logger.error({ err: message }, "Failed to bootstrap Lua scripts statically");
+        logger_1.logger.error({ err: message }, "Failed to bootstrap Lua scripts");
         throw err;
     }
     return registered;
@@ -479,16 +460,33 @@ function stopEvictionRoutine() {
 // Public API
 // =============================================================================
 async function initRedis() {
+    // Always bootstrap Lua scripts client-side first so they are defined
+    // immediately, regardless of whether connection succeeds now or later.
     try {
-        await exports.redis.connect();
-        // Eagerly validate connectivity — crash loud at boot if Redis is
-        // unreachable or credentials are wrong, instead of discovering it
-        // silently on the first request.
-        await exports.redis.ping();
-        logger_1.logger.info("Redis PING succeeded — connection validated");
         const scripts = await bootstrapLuaScripts();
-        logger_1.logger.info({ scriptsRegistered: scripts.length, scripts }, "✅ Redis connected and all Lua scripts boot-loaded successfully");
-        startEvictionRoutine();
+        logger_1.logger.info({ scriptsRegistered: scripts.length }, "Lua scripts registered client-side");
+    }
+    catch (err) {
+        logger_1.logger.error({ err }, "Failed client-side Lua scripts registration");
+    }
+    try {
+        // Race initial connection and ping validation against a 2.5-second timeout.
+        // This prevents blocking serverless function boots on unreachable networks.
+        const connectPromise = async () => {
+            await exports.redis.connect();
+            await exports.redis.ping();
+        };
+        const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Redis connection validation timed out (2.5s)")), 2500));
+        await Promise.race([connectPromise(), timeoutPromise]);
+        logger_1.logger.info("Redis PING succeeded — connection validated");
+        // Only run the background eviction interval in non-serverless environments.
+        // Serverless platforms like Vercel rely on the cron endpoint instead.
+        if (!process.env["VERCEL"]) {
+            startEvictionRoutine();
+        }
+        else {
+            logger_1.logger.info("Vercel environment detected: background eviction interval skipped (cron handles this)");
+        }
     }
     catch (err) {
         const message = err instanceof Error ? err.message : String(err);
