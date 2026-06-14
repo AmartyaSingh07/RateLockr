@@ -270,7 +270,7 @@ function Dashboard() {
               {/* ── Row 2: Chart (2/3) + Top Throttled (1/3) ── */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2">
-                  <TrafficSimulator />
+                  <TrafficSimulator selectedClientId={selectedClientId} />
                   <AllowDenyChart
                     stats={stats}
                     clientId={selectedClientId}
