@@ -1,8 +1,9 @@
 {
-  "routes": [
+  "version": 2,
+  "rewrites": [
     {
-      "src": "/(.*)",
-      "dest": "api/[...all].ts"
+      "source": "/(.*)",
+      "destination": "/api/[...all]"
     }
   ]
 }

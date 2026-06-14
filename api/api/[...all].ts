@@ -1,4 +1,3 @@
-import serverless from "serverless-http";
 import { app } from "../src/app";
 import { initRedis } from "../src/store/redis";
 
@@ -11,9 +10,7 @@ function initializeOnce(): Promise<void> {
   return initPromise;
 }
 
-const handler = serverless(app);
-
 export default async function vercelHandler(req: any, res: any) {
   await initializeOnce();
-  return handler(req, res);
+  return app(req, res);
 }
