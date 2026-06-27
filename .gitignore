@@ -29,6 +29,7 @@ Desktop.ini
 ehthumbs.db
 
 # Local Compilation Build Directories & Maps
+api/dist/
 dashboard/dist/
 service/dist/
 build/
