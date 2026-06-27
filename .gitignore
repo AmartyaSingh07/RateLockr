@@ -18,6 +18,8 @@ node_modules/
 
 # Docker Database Volumes / Local State Storage
 redis_data/
+dump.rdb
+**/dump.rdb
 service_node_modules/
 **/redis_data/
 **/service_node_modules/
