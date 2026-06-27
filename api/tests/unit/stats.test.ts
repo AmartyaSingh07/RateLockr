@@ -22,6 +22,8 @@ jest.mock("../../src/store/redis", () => {
       hlen: jest.fn(),
       status: "ready",
     },
+    // scanKeys now lives in the redis module (deduplicated from the route).
+    scanKeys: jest.fn().mockResolvedValue([]),
   };
 });
 
