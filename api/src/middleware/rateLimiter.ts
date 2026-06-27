@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import { redis } from "../store/redis";
-import { rulesKey, statsAllowKey, statsDenyKey } from "../lib/keys";
+import { rulesKey } from "../lib/keys";
+import { recordEvent } from "../lib/telemetry";
 import { checkTokenBucket } from "../algorithms/tokenBucket";
 import { checkSlidingWindow } from "../algorithms/slidingWindow";
 import { checkFixedWindow } from "../algorithms/fixedWindow";
@@ -24,62 +25,6 @@ const PATH_CLIENT_MAPPING: Record<string, string> = {
   "/api/v1/login":     "public_auth_gateway",
   "/api/v1/webhooks":  "stripe_webhook_syncer",
 };
-
-// ---------------------------------------------------------------------------
-// recordRequestEvent
-// ---------------------------------------------------------------------------
-// Called after every rate-limit decision. Atomically increments the global
-// running counters AND pushes a 1-second time-bucket snapshot so the stats
-// reader always has fresh, accurate data.
-//
-// Layout in Redis:
-//   stats:allow:<clientId>                  — integer, lifetime allowed count
-//   stats:deny:<clientId>                   — integer, lifetime denied count
-//   rl:tsbkt:g:<field>:<sec>                — string, global bucket per second
-//   rl:tsbkt:<clientId>:<field>:<sec>       — string, per-client bucket per second
-//
-// Uses separate string keys with incr instead of hash fields with hincrby,
-// because incr is confirmed working on the Upstash Redis SDK while hincrby
-// silently fails inside pipelines.
-// ---------------------------------------------------------------------------
-async function recordRequestEvent(
-  clientId: string,
-  allowed: boolean
-): Promise<void> {
-  // ── 1. Increment the correct lifetime counter ──────────────────────────
-  const counterKey = allowed ? statsAllowKey(clientId) : statsDenyKey(clientId);
-  try {
-    await redis.incr(counterKey);
-  } catch (err) {
-    logger.error({ err, clientId, allowed }, "Failed to increment lifetime counter");
-  }
-
-  // ── 2. Write a time-bucketed snapshot using string keys ────────────────
-  const nowSec = Math.floor(Date.now() / 1000);
-  const field = allowed ? "allowed" : "denied";
-
-  // Use separate string keys instead of hash fields.
-  // incr on a string key is confirmed working on this Redis instance.
-  // Key scheme:
-  //   Global:     rl:tsbkt:g:<field>:<sec>
-  //   Per-client: rl:tsbkt:<clientId>:<field>:<sec>
-  const globalKey = `rl:tsbkt:g:${field}:${nowSec}`;
-  const clientKey = `rl:tsbkt:${clientId}:${field}:${nowSec}`;
-
-  try {
-    const pipe = redis.pipeline();
-    pipe.incr(globalKey);
-    pipe.incr(clientKey);
-    pipe.expire(globalKey, 120);
-    pipe.expire(clientKey, 120);
-    await pipe.exec();
-  } catch (err) {
-    // Fallback to direct writes if pipeline fails
-    logger.error({ err, clientId, nowSec }, "Pipeline bucket write failed, using direct writes");
-    redis.incr(globalKey).then(() => redis.expire(globalKey, 120)).catch(() => {});
-    redis.incr(clientKey).then(() => redis.expire(clientKey, 120)).catch(() => {});
-  }
-}
 
 export const rateLimiterMiddleware = async (req: Request, res: Response, next: NextFunction): Promise<any> => {
   try {
@@ -192,7 +137,7 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
       checkRequestsTotal.inc({ algorithm: rule.algorithm, client_id: resolvedClientId, result: "deny" });
 
       // ── Record the deny event with a real timestamp ──────────────────────
-      recordRequestEvent(resolvedClientId, false).catch((err) => {
+      recordEvent(resolvedClientId, false).catch((err) => {
         logger.error({ err }, "Failed to record deny event");
       });
 
@@ -205,7 +150,7 @@ export const rateLimiterMiddleware = async (req: Request, res: Response, next: N
     checkRequestsTotal.inc({ algorithm: rule.algorithm, client_id: resolvedClientId, result: "allow" });
 
     // ── Record the allow event with a real timestamp ───────────────────────
-    recordRequestEvent(resolvedClientId, true).catch((err) => {
+    recordEvent(resolvedClientId, true).catch((err) => {
       logger.error({ err }, "Failed to record allow event");
     });
 

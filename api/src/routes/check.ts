@@ -2,7 +2,8 @@ import { Router } from "express";
 import { validateBody } from "../middleware/validate";
 import { checkSchema, CheckRequest } from "../schemas/checkSchema";
 import { redis } from "../store/redis";
-import { rulesKey, statsAllowKey, statsDenyKey } from "../lib/keys";
+import { rulesKey } from "../lib/keys";
+import { recordEvent } from "../lib/telemetry";
 import { checkTokenBucket } from "../algorithms/tokenBucket";
 import { checkSlidingWindow } from "../algorithms/slidingWindow";
 import { checkFixedWindow } from "../algorithms/fixedWindow";
@@ -134,9 +135,9 @@ router.post("/", validateBody(checkSchema), async (req, res, next) => {
       res.setHeader("Retry-After", String(rule.window_seconds));
       
       checkRequestsTotal.inc({ algorithm: algorithmToUse, client_id, result: "deny" });
-      
-      redis.incr(statsDenyKey(client_id)).catch((err) => {
-        logger.error({ err }, "Failed to increment deny stat");
+
+      recordEvent(client_id, false).catch((err) => {
+        logger.error({ err }, "Failed to record deny event");
       });
 
       recordTimelineEvent(client_id, false).catch((err) => {
@@ -148,9 +149,9 @@ router.post("/", validateBody(checkSchema), async (req, res, next) => {
     }
 
     checkRequestsTotal.inc({ algorithm: algorithmToUse, client_id, result: "allow" });
-    
-    redis.incr(statsAllowKey(client_id)).catch((err) => {
-      logger.error({ err }, "Failed to increment allow stat");
+
+    recordEvent(client_id, true).catch((err) => {
+      logger.error({ err }, "Failed to record allow event");
     });
 
     recordTimelineEvent(client_id, true).catch((err) => {
