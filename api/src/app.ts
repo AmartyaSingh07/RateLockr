@@ -1,7 +1,7 @@
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import { logger } from "./lib/logger";
-import { redis, initRedis } from "./store/redis";
+import { redis, initRedis, shutdownRedis } from "./store/redis";
 import { requestIdMiddleware } from "./middleware/requestId";
 import checkRouter from "./routes/check";
 import rulesRouter from "./routes/rules";
@@ -110,8 +110,24 @@ const PORT = parseInt(process.env["PORT"] ?? "3000", 10);
 if (require.main === module) {
   // Initialize Redis first (fail-open: server starts even if Redis is down)
   initRedis().then(() => {
-    app.listen(PORT, "0.0.0.0", () => {
+    const server = app.listen(PORT, "0.0.0.0", () => {
       logger.info({ port: PORT }, `🚀 RateLockr service is running on port ${PORT}`);
     });
+
+    const shutdown = (signal: string) => {
+      logger.info({ signal }, "Shutdown signal received — draining connections");
+      server.close(async () => {
+        await shutdownRedis();
+        logger.info("Graceful shutdown complete");
+        process.exit(0);
+      });
+      setTimeout(() => {
+        logger.error("Forced shutdown after timeout");
+        process.exit(1);
+      }, 10_000);
+    };
+
+    process.on("SIGTERM", () => shutdown("SIGTERM"));
+    process.on("SIGINT", () => shutdown("SIGINT"));
   });
 }
