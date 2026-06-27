@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { redis } from "../store/redis";
+import { redis, scanKeys } from "../store/redis";
 import { requireAdmin } from "../middleware/auth";
 import { logger } from "../lib/logger";
 
@@ -45,30 +45,6 @@ interface ClientStats {
   allowed: number;
   denied: number;
   denyRate: number;
-}
-
-/**
- * Scan Redis for all keys matching a pattern without blocking the event loop.
- */
-async function scanKeys(pattern: string): Promise<string[]> {
-  try {
-    const keys: string[] = [];
-    let cursor = "0";
-
-    do {
-      const result = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
-      if (!result || !Array.isArray(result)) break;
-      const [nextCursor, batch] = result;
-      cursor = nextCursor || "0";
-      if (batch && Array.isArray(batch)) keys.push(...batch);
-      else break;
-    } while (cursor !== "0");
-
-    return keys;
-  } catch (err) {
-    logger.error({ err, pattern }, "Error scanning keys from Redis");
-    return [];
-  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { validateBody } from "../middleware/validate";
 import { ruleSchema, RuleRequest } from "../schemas/ruleSchema";
-import { redis } from "../store/redis";
+import { redis, scanKeys } from "../store/redis";
 import { rulesKey } from "../lib/keys";
 import { requireAdmin } from "../middleware/auth";
 import { logger } from "../lib/logger";
@@ -17,25 +17,6 @@ router.use(requireAdmin);
 // Scans rl:rules:* keys, pipelines hgetall for each, and flattens into a
 // single array. Returns { rules: [...] } with a safe empty fallback.
 // ─────────────────────────────────────────────────────────────────────────────
-
-async function scanKeys(pattern: string): Promise<string[]> {
-  try {
-    const keys: string[] = [];
-    let cursor = "0";
-    do {
-      const result = await redis.scan(cursor, "MATCH", pattern, "COUNT", 100);
-      if (!result || !Array.isArray(result)) break;
-      const [nextCursor, batch] = result;
-      cursor = nextCursor || "0";
-      if (batch && Array.isArray(batch)) keys.push(...batch);
-      else break;
-    } while (cursor !== "0");
-    return keys;
-  } catch (err) {
-    logger.error({ err, pattern }, "Error scanning rule keys from Redis");
-    return [];
-  }
-}
 
 router.get("/", async (_req, res) => {
   try {

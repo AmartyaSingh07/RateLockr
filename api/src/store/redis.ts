@@ -430,7 +430,7 @@ async function bootstrapLuaScripts(): Promise<string[]> {
 
 let evictionIntervalId: NodeJS.Timeout | null = null;
 
-async function scanKeys(pattern: string): Promise<string[]> {
+export async function scanKeys(pattern: string): Promise<string[]> {
   const keys: string[] = [];
   try {
     let cursor = "0";
