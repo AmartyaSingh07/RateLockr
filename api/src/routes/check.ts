@@ -21,27 +21,6 @@ const DEFAULT_RULE: RuleRequest = {
   algorithm: "sliding_window"
 };
 
-async function recordTimelineEvent(clientId: string, allowed: boolean): Promise<void> {
-  const nowSec = Math.floor(Date.now() / 1000);
-  const field = allowed ? "allowed" : "denied";
-
-  const globalKey = `rl:tsbkt:g:${field}:${nowSec}`;
-  const clientKey = `rl:tsbkt:${clientId}:${field}:${nowSec}`;
-
-  try {
-    const pipe = redis.pipeline();
-    pipe.incr(globalKey);
-    pipe.incr(clientKey);
-    pipe.expire(globalKey, 120);
-    pipe.expire(clientKey, 120);
-    await pipe.exec();
-  } catch (err) {
-    logger.error({ err, clientId, nowSec }, "Pipeline bucket write failed in check route, using direct writes");
-    redis.incr(globalKey).then(() => redis.expire(globalKey, 120)).catch(() => {});
-    redis.incr(clientKey).then(() => redis.expire(clientKey, 120)).catch(() => {});
-  }
-}
-
 router.post("/", validateBody(checkSchema), async (req, res, next) => {
   try {
     const { client_id, endpoint, algorithm: requestedAlg } = req.body as CheckRequest;
@@ -140,10 +119,6 @@ router.post("/", validateBody(checkSchema), async (req, res, next) => {
         logger.error({ err }, "Failed to record deny event");
       });
 
-      recordTimelineEvent(client_id, false).catch((err) => {
-        logger.error({ err }, "Failed to record timeline deny event");
-      });
-
       res.status(429).json({ error: "Too Many Requests" });
       return;
     }
@@ -152,10 +127,6 @@ router.post("/", validateBody(checkSchema), async (req, res, next) => {
 
     recordEvent(client_id, true).catch((err) => {
       logger.error({ err }, "Failed to record allow event");
-    });
-
-    recordTimelineEvent(client_id, true).catch((err) => {
-      logger.error({ err }, "Failed to record timeline allow event");
     });
 
     res.status(200).json({ allowed: true });
