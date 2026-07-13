@@ -11,8 +11,7 @@
 [![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 [![Vite](https://img.shields.io/badge/Vite-6.x-646CFF?logo=vite&logoColor=white)](https://vitejs.dev/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-A855F7.svg)](LICENSE)
-[![Render](https://img.shields.io/badge/API-Render-46E3B7?logo=render&logoColor=white)](https://render.com/)
-[![Vercel](https://img.shields.io/badge/Dashboard-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com/)
+[![Vercel](https://img.shields.io/badge/Deployed_on-Vercel-000000?logo=vercel&logoColor=white)](https://vercel.com/)
 
 ---
 
@@ -20,7 +19,7 @@ A high-throughput, language-agnostic rate-limiting microservice that evaluates e
 
 The companion **Obsidian Glass** admin dashboard provides real-time telemetry, per-tenant drill-down, rule CRUD, and live traffic simulation with a WebGL fluid-cursor interface.
 
-[**Live Dashboard →**](https://rate-lockr.vercel.app) &nbsp;|&nbsp; [**API Endpoint →**](https://ratelockr-api.onrender.com/health)
+[**Live Dashboard →**](https://rate-lockr.vercel.app) &nbsp;|&nbsp; [**API Endpoint →**](https://rate-lockr-5z23.vercel.app/health)
 
 </div>
 
@@ -408,7 +407,6 @@ RateLockr/
 │   └── package.json
 │
 ├── docker-compose.dev.yml            # Local Redis + Node.js containers
-├── render.yaml                       # Render deployment blueprint
 └── README.md
 ```
 
@@ -510,33 +508,9 @@ docker compose -f docker-compose.dev.yml up --build
 
 ## Deployment
 
-### Backend — Render
-
-The service can be deployed to [Render](https://render.com/) using the `render.yaml` blueprint:
-
-```yaml
-services:
-  - type: web
-    name: ratelockr-api
-    runtime: node
-    plan: free
-    rootDirectory: api
-    buildCommand: "npm install --include=dev && npm run build"
-    startCommand: "npm start"
-```
-
-Required environment variables on Render:
-
-| Variable | Description |
-|:--|:--|
-| `UPSTASH_REDIS_REST_URL` | Upstash Redis REST endpoint |
-| `UPSTASH_REDIS_REST_TOKEN` | Upstash Redis REST auth token |
-| `ADMIN_API_KEY` | Dashboard authentication key |
-| `NODE_ENV` | `production` |
-
 ### Backend — Vercel
 
-The service can also be deployed to [Vercel](https://vercel.com/) as Serverless Functions:
+The service deploys to [Vercel](https://vercel.com/) as Serverless Functions:
 
 1. Set up a new project on Vercel and link the repository.
 2. In Vercel Project Settings, set the **Root Directory** to `api`.
@@ -590,7 +564,7 @@ Production uses [Upstash](https://upstash.com/) serverless Redis via the HTTP RE
 
 | Layer | Technology | Purpose |
 |:--|:--|:--|
-| API Hosting | **Render** | Free-tier container deployment |
+| API Hosting | **Vercel** | Serverless Functions deployment |
 | Dashboard Hosting | **Vercel** | Edge-optimized static serving |
 | Database | **Upstash Redis** | Serverless Redis via HTTP REST |
 | Containerization | **Docker Compose** | Local development orchestration |
