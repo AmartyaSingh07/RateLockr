@@ -1,4 +1,4 @@
-import { useMemo, useEffect } from "react";
+import { useMemo } from "react";
 import {
   LineChart,
   Line,
@@ -35,19 +35,9 @@ interface AllowDenyChartProps {
 }
 
 export function AllowDenyChart({ stats, clientId, onClearFilter }: AllowDenyChartProps) {
-  const { data, refetch } = useStats(clientId);
-
-  useEffect(() => {
-    const handleInstantRefetch = () => {
-      console.log("Simulator signal detected! Redrawing line curves instantly...");
-      refetch();
-    };
-
-    window.addEventListener("refetch-stats", handleInstantRefetch);
-    return () => {
-      window.removeEventListener("refetch-stats", handleInstantRefetch);
-    };
-  }, [refetch]);
+  // useStats already listens for "refetch-stats" internally (throttled), so no
+  // extra listener here — a second one just doubles the load on the API.
+  const { data } = useStats(clientId);
 
   const activeStats = data || stats;
 
