@@ -43,20 +43,16 @@ const rules = [
 
 async function run() {
   logger.info("Starting production API seeding sequence...");
-  const adminKey = "dev_admin_secret_key_987654321";
-  
-  // First, verify whether to use /api/rules or /rules
-  let baseUrl = "https://ratelockr-api.onrender.com/rules";
-  try {
-    const testRes = await fetch("https://ratelockr-api.onrender.com/api/rules", {
-      headers: { "x-api-key": adminKey }
-    });
-    if (testRes.status !== 404) {
-      baseUrl = "https://ratelockr-api.onrender.com/api/rules";
-    }
-  } catch (err) {
-    logger.info({ err }, "Could not ping /api/rules, using /rules as fallback");
+
+  const adminKey = process.env["ADMIN_API_KEY"];
+  const apiUrl = (process.env["API_URL"] || "https://rate-lockr-5z23.vercel.app").replace(/\/+$/, "");
+
+  if (!adminKey) {
+    logger.error("ADMIN_API_KEY environment variable is required. Aborting.");
+    process.exit(1);
   }
+
+  const baseUrl = `${apiUrl}/api/rules`;
 
   logger.info({ baseUrl }, "Selected target API URL for seeding");
 
