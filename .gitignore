@@ -46,3 +46,6 @@ build/
 *.njsproj
 *.sln
 *.sw?
+
+# Session handoff prompt (local only, never commit)
+CLAUDE_HANDOFF.md
