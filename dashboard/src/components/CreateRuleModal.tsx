@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef } from "react";
-import { X, Plus, Loader2, Zap } from "lucide-react";
+﻿import { useState, useEffect, useRef } from "react";
+import { X, Plus, Loader2, Zap, TriangleAlert } from "lucide-react";
 import { useCreateRule } from "../hooks/useRules";
 import type { Rule } from "../hooks/useRules";
 
 // =============================================================================
-// CreateRuleModal — Slide-Over Drawer Policy Form
+// CreateRuleModal — right-side slide-over on desktop, bottom sheet on mobile
+// (the responsive switch lives on .modal-overlay / .slide-over-panel in CSS).
 // =============================================================================
 
 interface CreateRuleModalProps {
@@ -20,20 +21,58 @@ const INITIAL_FORM: Rule = {
   algorithm: "token_bucket",
 };
 
+const LABEL_CLASS = "micro-label block mb-2";
+
 export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
   const [form, setForm] = useState<Rule>({ ...INITIAL_FORM });
   const [errors, setErrors] = useState<Partial<Record<keyof Rule, string>>>({});
   const createRule = useCreateRule();
   const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  // ─── ESC key to close ───
+  // ─── Escape to close + focus trap ───
+  // This is a plain overlay, not a native <dialog>, so the trap is ours to
+  // keep: without it, Tab walks straight out into the dashboard behind.
   useEffect(() => {
     if (!isOpen) return;
+
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    const focusables = () =>
+      Array.from(
+        panelRef.current?.querySelectorAll<HTMLElement>(
+          'button, input, select, textarea, [href], [tabindex]:not([tabindex="-1"])',
+        ) ?? [],
+      ).filter((el) => !el.hasAttribute("disabled"));
+
+    // Land on the first field, not the close button.
+    (panelRef.current?.querySelector("input") ?? focusables()[0])?.focus();
+
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+
+      const items = focusables();
+      if (items.length === 0) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
     };
+
     window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
+    return () => {
+      window.removeEventListener("keydown", handler);
+      previouslyFocused?.focus(); // return the user to the New Rule button
+    };
   }, [isOpen, onClose]);
 
   // ─── Overlay click to close ───
@@ -77,56 +116,40 @@ export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
       ref={overlayRef}
       className="modal-overlay"
       onClick={handleOverlayClick}
+      role="dialog"
+      aria-modal="true"
+      aria-label="New rule"
     >
-      <div className="slide-over-panel">
-        {/* ─── Drawer Header ─── */}
+      <div ref={panelRef} className="slide-over-panel">
+        {/* ─── Header ─── */}
         <div
-          className="sticky top-0 z-10 flex items-center justify-between px-6 py-5"
+          className="sticky top-0 z-10 flex items-center justify-between gap-3 px-6 py-5 backdrop-blur-xl"
           style={{
-            background: "rgba(14, 14, 24, 0.95)",
-            backdropFilter: "blur(16px)",
-            borderBottom: "1px solid rgba(255, 255, 255, 0.06)",
+            background: "var(--surface-solid)",
+            borderBottom: "1px solid var(--border)",
           }}
         >
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div
-              className="p-2 rounded-xl"
+              className="p-2 rounded-[var(--radius-control)] flex-shrink-0"
               style={{
-                background: "rgba(16, 185, 129, 0.1)",
-                border: "1px solid rgba(16, 185, 129, 0.15)",
+                background: "var(--accent-soft)",
+                border: "1px solid var(--accent-ring)",
               }}
             >
-              <Zap className="w-4 h-4" style={{ color: "#10b981" }} />
+              <Zap className="w-4 h-4" style={{ color: "var(--accent)" }} />
             </div>
-            <div>
-              <h2
-                className="text-sm font-bold text-zinc-100 tracking-wide uppercase"
-                style={{ fontFamily: "'JetBrains Mono', monospace" }}
-              >
-                New Rule
-              </h2>
-              <p className="text-[10px] mt-0.5" style={{ color: "#52525b" }}>
-                Configure rate limiting policy
-              </p>
+            <div className="min-w-0">
+              <h2 className="card-title">New rule</h2>
+              <p className="card-subtitle">Configure a rate limiting policy</p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 rounded-lg transition-all duration-200"
-            style={{
-              background: "rgba(255, 255, 255, 0.03)",
-              border: "1px solid rgba(255, 255, 255, 0.06)",
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = "rgba(244, 63, 94, 0.1)";
-              e.currentTarget.style.borderColor = "rgba(244, 63, 94, 0.2)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = "rgba(255, 255, 255, 0.03)";
-              e.currentTarget.style.borderColor = "rgba(255, 255, 255, 0.06)";
-            }}
+            aria-label="Close"
+            className="btn-icon flex-shrink-0"
           >
-            <X className="w-4 h-4" style={{ color: "#71717a" }} />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -135,25 +158,25 @@ export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
           {/* Client ID */}
           <div>
             <label
-              className="block text-[10px] font-bold uppercase tracking-widest mb-2"
-              style={{
-                color: "#71717a",
-                fontFamily: "'JetBrains Mono', monospace",
-              }}
+              className={LABEL_CLASS}
+              style={{ color: "var(--text-muted)" }}
+              htmlFor="rule-client-id"
             >
               Client ID
             </label>
             <input
+              id="rule-client-id"
               type="text"
               value={form.client_id}
               onChange={(e) => updateField("client_id", e.target.value)}
               placeholder="e.g. api_consumer_alpha"
               className="obsidian-input"
+              aria-invalid={!!errors.client_id}
             />
             {errors.client_id && (
               <p
                 className="text-[10px] mt-1.5 font-medium"
-                style={{ color: "#f43f5e" }}
+                style={{ color: "var(--danger)" }}
               >
                 {errors.client_id}
               </p>
@@ -163,25 +186,25 @@ export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
           {/* Endpoint */}
           <div>
             <label
-              className="block text-[10px] font-bold uppercase tracking-widest mb-2"
-              style={{
-                color: "#71717a",
-                fontFamily: "'JetBrains Mono', monospace",
-              }}
+              className={LABEL_CLASS}
+              style={{ color: "var(--text-muted)" }}
+              htmlFor="rule-endpoint"
             >
               Endpoint
             </label>
             <input
+              id="rule-endpoint"
               type="text"
               value={form.endpoint}
               onChange={(e) => updateField("endpoint", e.target.value)}
               placeholder="e.g. /api/v1/transactions"
               className="obsidian-input"
+              aria-invalid={!!errors.endpoint}
             />
             {errors.endpoint && (
               <p
                 className="text-[10px] mt-1.5 font-medium"
-                style={{ color: "#f43f5e" }}
+                style={{ color: "var(--danger)" }}
               >
                 {errors.endpoint}
               </p>
@@ -191,15 +214,14 @@ export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
           {/* Algorithm Select */}
           <div>
             <label
-              className="block text-[10px] font-bold uppercase tracking-widest mb-2"
-              style={{
-                color: "#71717a",
-                fontFamily: "'JetBrains Mono', monospace",
-              }}
+              className={LABEL_CLASS}
+              style={{ color: "var(--text-muted)" }}
+              htmlFor="rule-algorithm"
             >
               Algorithm
             </label>
             <select
+              id="rule-algorithm"
               value={form.algorithm}
               onChange={(e) =>
                 updateField("algorithm", e.target.value as Rule["algorithm"])
@@ -213,19 +235,19 @@ export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
           </div>
 
           {/* Limit + Window Row */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label
-                className="block text-[10px] font-bold uppercase tracking-widest mb-2"
-                style={{
-                  color: "#71717a",
-                  fontFamily: "'JetBrains Mono', monospace",
-                }}
+                className={LABEL_CLASS}
+                style={{ color: "var(--text-muted)" }}
+                htmlFor="rule-limit"
               >
                 Limit
               </label>
               <input
+                id="rule-limit"
                 type="number"
+                inputMode="numeric"
                 min={1}
                 value={form.limit}
                 onChange={(e) =>
@@ -233,11 +255,12 @@ export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
                 }
                 placeholder="100"
                 className="obsidian-input"
+                aria-invalid={!!errors.limit}
               />
               {errors.limit && (
                 <p
                   className="text-[10px] mt-1.5 font-medium"
-                  style={{ color: "#f43f5e" }}
+                  style={{ color: "var(--danger)" }}
                 >
                   {errors.limit}
                 </p>
@@ -245,31 +268,29 @@ export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
             </div>
             <div>
               <label
-                className="block text-[10px] font-bold uppercase tracking-widest mb-2"
-                style={{
-                  color: "#71717a",
-                  fontFamily: "'JetBrains Mono', monospace",
-                }}
+                className={LABEL_CLASS}
+                style={{ color: "var(--text-muted)" }}
+                htmlFor="rule-window"
               >
                 Window (sec)
               </label>
               <input
+                id="rule-window"
                 type="number"
+                inputMode="numeric"
                 min={1}
                 value={form.window_seconds}
                 onChange={(e) =>
-                  updateField(
-                    "window_seconds",
-                    parseInt(e.target.value) || 0
-                  )
+                  updateField("window_seconds", parseInt(e.target.value) || 0)
                 }
                 placeholder="60"
                 className="obsidian-input"
+                aria-invalid={!!errors.window_seconds}
               />
               {errors.window_seconds && (
                 <p
                   className="text-[10px] mt-1.5 font-medium"
-                  style={{ color: "#f43f5e" }}
+                  style={{ color: "var(--danger)" }}
                 >
                   {errors.window_seconds}
                 </p>
@@ -279,82 +300,39 @@ export function CreateRuleModal({ isOpen, onClose }: CreateRuleModalProps) {
 
           {/* ─── Action Buttons ─── */}
           <div
-            className="pt-4 flex gap-3"
-            style={{ borderTop: "1px solid rgba(255, 255, 255, 0.06)" }}
+            className="pt-4 flex flex-col-reverse sm:flex-row gap-3"
+            style={{ borderTop: "1px solid var(--border)" }}
           >
+            <button type="button" onClick={onClose} className="btn text-sm">
+              Cancel
+            </button>
             <button
               type="submit"
               disabled={createRule.isPending}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200"
-              style={{
-                background: createRule.isPending
-                  ? "rgba(16, 185, 129, 0.15)"
-                  : "rgba(16, 185, 129, 0.2)",
-                border: "1px solid rgba(16, 185, 129, 0.25)",
-                color: "#10b981",
-                fontFamily: "'JetBrains Mono', monospace",
-              }}
-              onMouseEnter={(e) => {
-                if (!createRule.isPending) {
-                  e.currentTarget.style.background =
-                    "rgba(16, 185, 129, 0.3)";
-                  e.currentTarget.style.borderColor =
-                    "rgba(16, 185, 129, 0.4)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background =
-                  "rgba(16, 185, 129, 0.2)";
-                e.currentTarget.style.borderColor =
-                  "rgba(16, 185, 129, 0.25)";
-              }}
+              className="btn-accent flex-1 text-sm"
             >
               {createRule.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 <Plus className="w-4 h-4" />
               )}
-              {createRule.isPending ? "Creating..." : "Create Rule"}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 rounded-xl text-sm font-medium transition-all duration-200"
-              style={{
-                background: "rgba(255, 255, 255, 0.03)",
-                border: "1px solid rgba(255, 255, 255, 0.06)",
-                color: "#71717a",
-                fontFamily: "'JetBrains Mono', monospace",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background =
-                  "rgba(255, 255, 255, 0.06)";
-                e.currentTarget.style.borderColor =
-                  "rgba(255, 255, 255, 0.1)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background =
-                  "rgba(255, 255, 255, 0.03)";
-                e.currentTarget.style.borderColor =
-                  "rgba(255, 255, 255, 0.06)";
-              }}
-            >
-              Cancel
+              {createRule.isPending ? "Creating…" : "Create rule"}
             </button>
           </div>
 
           {/* ─── Error Feedback ─── */}
           {createRule.isError && (
             <div
-              className="px-4 py-3 rounded-xl text-xs font-medium"
+              role="alert"
+              className="flex items-start gap-2 px-4 py-3 rounded-[var(--radius-control)] text-xs font-medium font-mono"
               style={{
-                background: "rgba(244, 63, 94, 0.08)",
-                border: "1px solid rgba(244, 63, 94, 0.15)",
-                color: "#fb7185",
-                fontFamily: "'JetBrains Mono', monospace",
+                background: "color-mix(in srgb, var(--danger) 10%, transparent)",
+                border: "1px solid color-mix(in srgb, var(--danger) 25%, transparent)",
+                color: "var(--danger)",
               }}
             >
-              Failed to create rule. Please check your inputs and try again.
+              <TriangleAlert className="w-4 h-4 flex-shrink-0 mt-px" />
+              <span>Couldn't create the rule. Check the values and try again.</span>
             </div>
           )}
         </form>

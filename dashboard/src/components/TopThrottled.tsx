@@ -1,18 +1,12 @@
 import { useMemo } from "react";
-import { ShieldX } from "lucide-react";
+import { ShieldX, ShieldCheck } from "lucide-react";
 import type { Stats } from "../hooks/useStats";
 import { ScrambledText } from "./ScrambledText";
 
 // =============================================================================
 // Top Throttled Clients — Ranked Violation Leaderboard
 // =============================================================================
-// Extracts the topThrottled array (string[]) from the Stats polling payload
-// and renders a compact rank list of client IDs with a scramble hover effect.
-//
-// Color System (Google Stitch):
-//   Surface:  #1E293B   Border:  #334155
-//   Row Hover: rgba(15, 23, 42, 0.5)
-//   Badge:    #f43f5e on rgba(244, 63, 94, 0.1)
+// Reads the topThrottled array (string[]) from the Stats polling payload.
 // =============================================================================
 
 interface TopThrottledProps {
@@ -20,92 +14,68 @@ interface TopThrottledProps {
 }
 
 export function TopThrottled({ stats }: TopThrottledProps) {
-  const throttledClients = useMemo(() => stats?.topThrottled ?? [], [stats?.topThrottled]);
+  const throttledClients = useMemo(
+    () => stats?.topThrottled ?? [],
+    [stats?.topThrottled],
+  );
 
   return (
-    <div
-      className="rounded-2xl p-6 h-full flex flex-col transition-all duration-300 hover:shadow-lg glass-card"
-    >
+    <div className="glass-card p-4 sm:p-6 min-w-0 flex flex-col">
       {/* ─── Header ─── */}
-      <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-sm font-semibold text-white tracking-tight uppercase">
-            Top Throttled
-          </h2>
-          <p className="text-xs mt-0.5" style={{ color: "#64748b" }}>
-            Clients with highest denial counts
-          </p>
+      <div className="flex items-start justify-between gap-3 mb-5">
+        <div className="min-w-0">
+          <h2 className="card-title">Top throttled</h2>
+          <p className="card-subtitle">Clients with the most denials</p>
         </div>
-        <div
-          className="p-1.5 rounded-lg"
-          style={{
-            backgroundColor: "rgba(244, 63, 94, 0.1)",
-            border: "1px solid rgba(244, 63, 94, 0.2)",
-          }}
-        >
-          <ShieldX className="w-3.5 h-3.5" style={{ color: "#fb7185" }} />
-        </div>
+        <ShieldX
+          className="w-4 h-4 flex-shrink-0 mt-0.5"
+          style={{ color: "var(--text-faint)" }}
+        />
       </div>
 
       {/* ─── Ranked List ─── */}
-      <div className="flex-1 space-y-1.5 overflow-y-auto pr-1">
+      <div className="flex-1 space-y-1.5 overflow-y-auto pr-1 min-w-0">
         {throttledClients.length === 0 ? (
-          <div className="flex items-center justify-center h-full min-h-[200px]">
-            <p className="text-sm font-medium" style={{ color: "#475569", fontFamily: "'JetBrains Mono', monospace" }}>
-              No active violators
+          <div className="flex flex-col items-center justify-center gap-2 h-full min-h-[200px] text-center px-4">
+            <ShieldCheck
+              className="w-6 h-6"
+              style={{ color: "var(--success)" }}
+            />
+            <p
+              className="text-sm font-medium font-mono"
+              style={{ color: "var(--text-muted)" }}
+            >
+              Everyone's within limits
+            </p>
+            <p className="text-xs" style={{ color: "var(--text-faint)" }}>
+              Clients appear here once they start getting denied.
             </p>
           </div>
         ) : (
           throttledClients.map((clientId, index) => (
+            /* No per-row "Throttled" badge — the card is titled Top throttled;
+               repeating it on every row is noise. Rank carries the ordering. */
             <div
               key={clientId}
-              className="flex items-center justify-between px-3 py-2.5 rounded-lg transition-all duration-200"
-              style={{
-                backgroundColor: "transparent",
-                border: "1px solid transparent",
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = "rgba(15, 23, 42, 0.5)";
-                e.currentTarget.style.borderColor = "rgba(51, 65, 85, 0.5)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = "transparent";
-                e.currentTarget.style.borderColor = "transparent";
-              }}
+              className="flex items-center gap-3 px-3 py-2.5 border border-transparent transition-colors duration-200 hover:bg-[var(--surface-2)] hover:border-[var(--border)]"
+              style={{ borderRadius: "var(--radius-control)" }}
             >
-              {/* Rank + Client ID with Scramble Effect */}
-              <div className="flex items-center gap-3 min-w-0">
-                <span
-                  className="text-xs font-bold w-5 text-center flex-shrink-0"
-                  style={{
-                    color: "#475569",
-                    fontFamily: "'JetBrains Mono', monospace",
-                  }}
-                >
-                  {(index + 1).toString().padStart(2, "0")}
-                </span>
-                <span
-                  className="text-sm font-medium truncate"
-                  style={{
-                    color: "#e2e8f0",
-                  }}
-                >
-                  <ScrambledText>{clientId}</ScrambledText>
-                </span>
-              </div>
-
-              {/* Status Badge */}
               <span
-                className="text-[10px] font-bold px-2 py-0.5 rounded-md flex-shrink-0 ml-3 tracking-widest uppercase"
-                style={{
-                  color: "#f43f5e",
-                  backgroundColor: "rgba(244, 63, 94, 0.1)",
-                  border: "1px solid rgba(244, 63, 94, 0.2)",
-                  fontFamily: "'JetBrains Mono', monospace",
-                }}
+                className="text-xs font-bold w-5 text-center flex-shrink-0 font-mono"
+                style={{ color: "var(--text-faint)" }}
               >
-                Throttled
+                {(index + 1).toString().padStart(2, "0")}
               </span>
+              <span
+                className="text-sm font-medium truncate min-w-0 flex-1"
+                style={{ color: "var(--text)" }}
+              >
+                <ScrambledText>{clientId}</ScrambledText>
+              </span>
+              <span
+                className="w-1.5 h-1.5 rounded-full flex-shrink-0"
+                style={{ backgroundColor: "var(--danger)" }}
+              />
             </div>
           ))
         )}

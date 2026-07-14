@@ -1,4 +1,4 @@
-import { useState } from "react";
+﻿import { useState } from "react";
 import { Loader2, Play, Zap } from "lucide-react";
 
 interface TrafficSimulatorProps {
@@ -68,56 +68,59 @@ export function TrafficSimulator({ selectedClientId }: TrafficSimulatorProps) {
 
   return (
     <div
-      className="glass-card p-4 flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4"
+      className="glass-card p-4 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-4 min-w-0"
       style={{ marginBottom: "1.5rem" }}
     >
-      <div className="flex flex-col gap-1.5">
-        <h3
-          className="text-xs font-bold uppercase tracking-widest text-zinc-300 flex items-center gap-2"
-          style={{ fontFamily: "'JetBrains Mono', monospace" }}
-        >
-          <Zap className="w-3.5 h-3.5 text-emerald-400" />
-          Live Traffic Simulator
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <h3 className="card-title flex items-center gap-2">
+          <Zap
+            className="w-4 h-4 flex-shrink-0"
+            style={{ color: "var(--text-faint)" }}
+          />
+          Traffic simulator
         </h3>
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-[11px] text-zinc-500">
-            Generate test request traffic to visualize live policy throughput curves.
+        <div className="flex flex-wrap items-center gap-2 min-w-0">
+          <p className="card-subtitle">
+            Send test requests and watch them land on the throughput chart.
           </p>
-          <span className="text-[9px] px-1.5 py-0.5 rounded-md bg-zinc-800/80 border border-zinc-700/80 text-emerald-400 font-mono font-semibold">
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded-[var(--radius-badge)] font-mono font-semibold max-w-full truncate"
+            style={{
+              color: "var(--accent)",
+              background: "var(--accent-soft)",
+              border: "1px solid var(--accent-ring)",
+            }}
+          >
             Target: {activeClientId}
           </span>
         </div>
       </div>
 
-      <div className="flex items-center gap-3 w-full lg:w-auto">
-        {/* Button 1: Zinc text with thin slate outlines */}
+      <div className="flex flex-col sm:flex-row items-stretch gap-3 w-full lg:w-auto flex-shrink-0">
         <button
           onClick={() => triggerTrafficSimulation(1)}
           disabled={isSimulating1 || isSimulating15}
-          className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200 border border-zinc-700 bg-zinc-800/50 text-zinc-100 hover:bg-zinc-700/50 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none"
-          style={{ fontFamily: "'JetBrains Mono', monospace" }}
+          className="btn"
         >
           {isSimulating1 ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
-            <Play className="w-3.5 h-3.5 text-zinc-400" />
+            <Play className="w-3.5 h-3.5" />
           )}
-          <span> Fire Single Request</span>
+          <span>Fire single request</span>
         </button>
 
-        {/* Button 2: Slate background with clean text indicators */}
         <button
           onClick={() => triggerTrafficSimulation(15)}
           disabled={isSimulating1 || isSimulating15}
-          className="flex-1 lg:flex-none flex items-center justify-center gap-2 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-200 border border-zinc-600 bg-zinc-700/50 text-zinc-200 hover:bg-zinc-600/50 hover:-translate-y-0.5 active:translate-y-0 disabled:opacity-50 disabled:pointer-events-none"
-          style={{ fontFamily: "'JetBrains Mono', monospace" }}
+          className="btn-accent"
         >
           {isSimulating15 ? (
-            <Loader2 className="w-3.5 h-3.5 animate-spin text-zinc-400" />
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
           ) : (
-            <Zap className="w-3.5 h-3.5 text-zinc-400" />
+            <Zap className="w-3.5 h-3.5" />
           )}
-          <span> Simulate Load Burst (15x)</span>
+          <span>Burst 15 requests</span>
         </button>
       </div>
     </div>

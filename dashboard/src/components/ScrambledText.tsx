@@ -107,7 +107,7 @@ export function ScrambledText({
         letterSpacing: "0.05em",
         display: "inline-block",
         transition: "color 0.25s ease-out",
-        color: isHovered ? "#10b981" : "inherit",
+        color: isHovered ? "var(--accent)" : "inherit",
       }}
     >
       {displayedText}
